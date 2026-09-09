@@ -1,0 +1,1749 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Repeindre">
+<meta name="theme-color" content="#17140f">
+<title>Repeindre — recoloration de figurines</title>
+
+<!--
+  Icône d'écran d'accueil iOS générée en SVG inline (pot de peinture stylisé).
+  Remplace cette ligne par un vrai fichier PNG 180x180 si tu veux une icône
+  plus soignée : <link rel="apple-touch-icon" href="icon.png">
+-->
+<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'%3E%3Crect width='180' height='180' rx='36' fill='%2317140f'/%3E%3Ccircle cx='90' cy='78' r='40' fill='%23c08a3e'/%3E%3Crect x='78' y='30' width='24' height='34' rx='6' fill='%23c08a3e'/%3E%3Ccircle cx='75' cy='70' r='9' fill='%23e8503a'/%3E%3Ccircle cx='105' cy='68' r='7' fill='%237fae6b'/%3E%3Ccircle cx='90' cy='95' r='8' fill='%234f7fb3'/%3E%3C/svg%3E">
+
+<style>
+:root{
+  --ink:#17140f;
+  --panel:#211c15;
+  --panel-2:#2a231a;
+  --line:#3a3122;
+  --paper:#f3ead9;
+  --paper-dim:#b8ac95;
+  --brass:#c08a3e;
+  --brass-bright:#e0aa5c;
+  --danger:#c0503f;
+  --ok:#7fae6b;
+  --radius:10px;
+  --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-display: "Charter", "Georgia", serif;
+}
+*{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+html,body{
+  margin:0; padding:0; background:var(--ink); color:var(--paper);
+  font-family:var(--font-ui);
+  height:100%;
+  overscroll-behavior:none;
+}
+body{
+  display:flex; flex-direction:column;
+  min-height:100vh;
+  min-height:100dvh;
+}
+button{
+  font-family:inherit; -webkit-appearance:none; appearance:none;
+  cursor:pointer;
+}
+input, select{ font-family:inherit; }
+
+/* ---------- Header ---------- */
+header{
+  padding:14px 16px 10px;
+  border-bottom:1px solid var(--line);
+  display:flex; align-items:baseline; justify-content:space-between; gap:10px;
+  flex-shrink:0;
+}
+header h1{
+  font-family:var(--font-display);
+  font-weight:600;
+  font-size:1.25rem;
+  margin:0;
+  letter-spacing:0.2px;
+}
+header .subtitle{
+  font-size:0.72rem;
+  color:var(--paper-dim);
+  margin-top:2px;
+}
+.icon-btn{
+  background:transparent; border:1px solid var(--line); color:var(--paper);
+  border-radius:8px; padding:7px 10px; font-size:0.78rem;
+}
+.icon-btn:active{ background:var(--panel-2); }
+
+/* ---------- Layout ---------- */
+main{ flex:1; display:flex; flex-direction:column; min-height:0; }
+
+/* ---------- Upload screen ---------- */
+#uploadScreen{
+  flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center;
+  padding:32px 20px; text-align:center; gap:18px;
+}
+#uploadScreen .pot{
+  width:64px; height:64px; opacity:0.85;
+}
+#uploadScreen p{ color:var(--paper-dim); max-width:320px; line-height:1.5; font-size:0.92rem; margin:0;}
+.upload-actions{ display:flex; flex-direction:column; gap:10px; width:100%; max-width:300px; }
+.btn-primary{
+  background:var(--brass); color:#1a1408; border:none; border-radius:var(--radius);
+  padding:14px 18px; font-size:0.95rem; font-weight:600;
+}
+.btn-primary:active{ background:var(--brass-bright); }
+.btn-secondary{
+  background:transparent; color:var(--paper); border:1px solid var(--line);
+  border-radius:var(--radius); padding:13px 18px; font-size:0.9rem;
+}
+.btn-secondary:active{ background:var(--panel-2); }
+#resumeBanner{
+  display:none;
+  background:var(--panel-2); border:1px solid var(--line); border-radius:var(--radius);
+  padding:12px 14px; max-width:320px; width:100%; text-align:left; font-size:0.85rem;
+}
+#resumeBanner .row{ display:flex; gap:8px; margin-top:10px; }
+#resumeBanner button{ flex:1; border-radius:8px; padding:9px; font-size:0.82rem; }
+
+/* ---------- Editor ---------- */
+#editorScreen{ display:none; flex:1; flex-direction:column; min-height:0; }
+
+.canvas-wrap{
+  position:relative; flex:1; min-height:0;
+  background:
+    linear-gradient(45deg, #201b13 25%, transparent 25%) 0 0/16px 16px,
+    linear-gradient(-45deg, #201b13 25%, transparent 25%) 0 0/16px 16px,
+    linear-gradient(45deg, transparent 75%, #201b13 75%) 0 0/16px 16px,
+    linear-gradient(-45deg, transparent 75%, #201b13 75%) 0 0/16px 16px,
+    var(--ink);
+  overflow:hidden;
+  touch-action:none;
+}
+#viewCanvas{
+  position:absolute; top:0; left:0;
+  touch-action:none;
+}
+.zoom-controls{
+  position:absolute; right:10px; bottom:10px; display:flex; flex-direction:column; gap:6px;
+  z-index:5;
+}
+.zoom-controls button{
+  width:38px; height:38px; border-radius:50%; border:1px solid var(--line);
+  background:rgba(23,20,15,0.85); color:var(--paper); font-size:1rem;
+}
+.mode-badge{
+  position:absolute; left:10px; top:10px; z-index:5;
+  background:rgba(23,20,15,0.85); border:1px solid var(--line); border-radius:20px;
+  padding:6px 12px; font-size:0.72rem; color:var(--paper-dim);
+  display:flex; align-items:center; gap:6px;
+}
+.mode-badge b{ color:var(--brass-bright); font-weight:600; }
+.mode-badge.pan-mode{ border-color:var(--brass); }
+.mode-badge.pan-mode b{ color:var(--brass-bright); }
+.zoom-level{
+  text-align:center; font-size:0.68rem; color:var(--paper-dim);
+  background:rgba(23,20,15,0.85); border:1px solid var(--line); border-radius:20px;
+  padding:4px 0; margin-bottom:2px;
+}
+.zoom-controls button:disabled{ opacity:0.3; pointer-events:none; }
+.ba-toggle{
+  position:absolute; top:10px; right:10px; z-index:5;
+  background:rgba(23,20,15,0.85); border:1px solid var(--line); border-radius:20px;
+  padding:6px 12px; font-size:0.72rem; color:var(--paper);
+}
+.ba-toggle.active{ border-color:var(--brass); color:var(--brass-bright); }
+
+/* ---------- Bottom control panel ---------- */
+#controlPanel{
+  flex-shrink:0;
+  background:var(--panel);
+  border-top:1px solid var(--line);
+  max-height:52vh;
+  overflow-y:auto;
+  -webkit-overflow-scrolling:touch;
+}
+.tabs{
+  display:flex; border-bottom:1px solid var(--line);
+  position:sticky; top:0; background:var(--panel); z-index:2;
+}
+.tab{
+  flex:1; padding:11px 4px; text-align:center; font-size:0.78rem;
+  color:var(--paper-dim); background:transparent; border:none;
+  border-bottom:2px solid transparent;
+}
+.tab.active{ color:var(--brass-bright); border-bottom-color:var(--brass); }
+.tab-panel{ display:none; padding:14px 16px 18px; }
+.tab-panel.active{ display:block; }
+
+.field-row{ margin-bottom:14px; }
+.field-row label{
+  display:flex; justify-content:space-between; font-size:0.78rem; color:var(--paper-dim);
+  margin-bottom:6px;
+}
+.field-row input[type=range]{ width:100%; accent-color:var(--brass); }
+.seg{ display:flex; gap:8px; margin-bottom:14px; }
+.seg button{
+  flex:1; padding:10px 6px; border-radius:8px; border:1px solid var(--line);
+  background:var(--panel-2); color:var(--paper); font-size:0.82rem;
+}
+.seg button.active{ background:var(--brass); color:#1a1408; border-color:var(--brass); font-weight:600; }
+.checkbox-row{ display:flex; align-items:center; gap:8px; margin-bottom:14px; font-size:0.82rem; color:var(--paper-dim); }
+.checkbox-row input{ width:18px; height:18px; accent-color:var(--brass); }
+
+.action-row{ display:flex; gap:8px; margin-top:6px; }
+.action-row button{ flex:1; border-radius:8px; padding:11px; font-size:0.83rem; }
+
+/* Palette */
+.search-row{ display:flex; gap:8px; margin-bottom:10px; }
+.search-row input{
+  flex:1; background:var(--panel-2); border:1px solid var(--line); color:var(--paper);
+  border-radius:8px; padding:9px 11px; font-size:0.85rem;
+}
+.range-chips{ display:flex; gap:6px; overflow-x:auto; padding-bottom:8px; margin-bottom:10px; }
+.range-chips::-webkit-scrollbar{ display:none; }
+.chip{
+  flex-shrink:0; padding:6px 12px; border-radius:20px; border:1px solid var(--line);
+  background:var(--panel-2); color:var(--paper-dim); font-size:0.74rem; white-space:nowrap;
+}
+.chip.active{ background:var(--brass); color:#1a1408; border-color:var(--brass); font-weight:600; }
+.swatch-grid{
+  display:grid; grid-template-columns:repeat(5, 1fr); gap:10px;
+}
+.swatch{
+  aspect-ratio:1; border-radius:10px; border:2px solid rgba(255,255,255,0.08);
+  position:relative;
+}
+.swatch.selected{ border-color:var(--brass-bright); box-shadow:0 0 0 2px var(--brass); }
+.swatch-name{
+  font-size:0.6rem; text-align:center; margin-top:4px; color:var(--paper-dim);
+  line-height:1.15; height:2.2em; overflow:hidden;
+}
+.swatch-cell{ display:flex; flex-direction:column; }
+.swatch-empty{ text-align:center; color:var(--paper-dim); font-size:0.8rem; padding:20px 0; grid-column:1/-1; }
+
+/* Layers */
+.layer-item{
+  display:flex; align-items:center; gap:10px; padding:10px 0;
+  border-bottom:1px solid var(--line);
+}
+.layer-item:last-child{ border-bottom:none; }
+.layer-swatch{ width:30px; height:30px; border-radius:7px; flex-shrink:0; border:1px solid rgba(255,255,255,0.15); }
+.layer-info{ flex:1; min-width:0; }
+.layer-name{ font-size:0.85rem; }
+.layer-meta{ font-size:0.68rem; color:var(--paper-dim); }
+.layer-actions{ display:flex; gap:6px; }
+.layer-actions button{
+  background:transparent; border:1px solid var(--line); color:var(--paper-dim);
+  border-radius:6px; padding:6px 9px; font-size:0.9rem;
+}
+.layers-empty{ color:var(--paper-dim); font-size:0.85rem; text-align:center; padding:20px 0; }
+
+/* Edit banner (modification d'un calque existant) */
+.edit-banner{
+  display:none;
+  align-items:center; justify-content:space-between; gap:10px;
+  background:var(--panel-2); border-bottom:1px solid var(--brass);
+  padding:10px 14px;
+}
+.edit-banner.show{ display:flex; }
+.edit-banner-info{ display:flex; align-items:center; gap:10px; min-width:0; }
+.edit-banner-swatch{ width:28px; height:28px; border-radius:7px; flex-shrink:0; border:1px solid rgba(255,255,255,0.15); }
+.edit-banner-title{ font-size:0.68rem; color:var(--brass-bright); text-transform:uppercase; letter-spacing:0.3px; }
+.edit-banner-name{ font-size:0.85rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.edit-banner-actions{ display:flex; gap:6px; flex-shrink:0; }
+.edit-banner-actions button{ border-radius:8px; padding:8px 10px; font-size:0.78rem; }
+
+/* Export tab */
+.export-note{ font-size:0.76rem; color:var(--paper-dim); line-height:1.5; margin-bottom:14px; }
+
+/* Toast */
+#toast{
+  position:fixed; bottom:16px; left:50%; transform:translateX(-50%);
+  background:var(--panel-2); border:1px solid var(--line); color:var(--paper);
+  padding:10px 16px; border-radius:20px; font-size:0.8rem;
+  opacity:0; pointer-events:none; transition:opacity 0.25s;
+  z-index:50;
+}
+#toast.show{ opacity:1; }
+
+/* Confirm modal */
+.modal-backdrop{
+  position:fixed; inset:0; background:rgba(0,0,0,0.6); display:none;
+  align-items:center; justify-content:center; z-index:100; padding:24px;
+}
+.modal-backdrop.show{ display:flex; }
+.modal{
+  background:var(--panel); border:1px solid var(--line); border-radius:var(--radius);
+  padding:20px; max-width:320px; width:100%;
+}
+.modal p{ font-size:0.88rem; line-height:1.5; margin:0 0 16px; }
+.modal .row{ display:flex; gap:8px; }
+.modal .row button{ flex:1; border-radius:8px; padding:10px; font-size:0.85rem; }
+
+@media (min-width:820px){
+  #controlPanel{ max-height:none; width:340px; border-top:none; border-left:1px solid var(--line); }
+  #editorScreen{ flex-direction:row; }
+  .canvas-wrap{ flex:1; }
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>Repeindre</h1>
+    <div class="subtitle">Recoloration de figurines · palette Citadel</div>
+  </div>
+  <button class="icon-btn" id="newProjectBtn" style="display:none;">Nouveau</button>
+</header>
+
+<main>
+
+  <!-- ============ UPLOAD SCREEN ============ -->
+  <div id="uploadScreen">
+    <svg class="pot" viewBox="0 0 100 100" fill="none">
+      <circle cx="50" cy="46" r="26" fill="#c08a3e"/>
+      <rect x="42" y="10" width="16" height="20" rx="4" fill="#c08a3e"/>
+      <circle cx="40" cy="40" r="6" fill="#e8503a"/>
+      <circle cx="60" cy="38" r="5" fill="#7fae6b"/>
+      <circle cx="50" cy="55" r="5.5" fill="#4f7fb3"/>
+    </svg>
+    <p>Prends ou choisis une photo de ta figurine, puis sélectionne des zones à repeindre avec une couleur Citadel — les ombres et reflets d'origine sont conservés.</p>
+
+    <div id="resumeBanner">
+      <div>Un projet en cours a été trouvé.</div>
+      <div class="row">
+        <button class="btn-secondary" id="discardResumeBtn">Ignorer</button>
+        <button class="btn-primary" id="resumeBtn">Reprendre</button>
+      </div>
+    </div>
+
+    <div class="upload-actions">
+      <label class="btn-primary" style="text-align:center; display:block;">
+        Prendre une photo
+        <input type="file" accept="image/*" capture="environment" id="captureInput" style="display:none;">
+      </label>
+      <label class="btn-secondary" style="text-align:center; display:block;">
+        Choisir depuis la pellicule
+        <input type="file" accept="image/*" id="fileInput" style="display:none;">
+      </label>
+    </div>
+  </div>
+
+  <!-- ============ EDITOR SCREEN ============ -->
+  <div id="editorScreen">
+
+    <div class="canvas-wrap" id="canvasWrap">
+      <canvas id="viewCanvas"></canvas>
+
+      <button class="mode-badge" id="viewModeToggle" type="button" title="Basculer entre déplacement/zoom et sélection">
+        <span id="viewModeIcon">🎯</span> Mode : <b id="modeLabel">Sélectionner</b>
+      </button>
+      <button class="ba-toggle" id="baToggle">Avant / après</button>
+
+      <div class="zoom-controls">
+        <div class="zoom-level" id="zoomLevelLabel">100%</div>
+        <button id="zoomInBtn" title="Zoomer">+</button>
+        <button id="zoomOutBtn" title="Dézoomer">−</button>
+        <button id="centerBtn" style="font-size:0.62rem;" title="Centrer l'image sans changer le zoom">⌖</button>
+        <button id="zoomResetBtn" style="font-size:0.62rem;" title="Ajuster l'image à l'écran">Ajuster</button>
+      </div>
+    </div>
+
+    <div id="controlPanel">
+      <div id="editBanner" class="edit-banner">
+        <div class="edit-banner-info">
+          <div class="edit-banner-swatch" id="editBannerSwatch"></div>
+          <div>
+            <div class="edit-banner-title">Modification du calque</div>
+            <div class="edit-banner-name" id="editBannerName">—</div>
+          </div>
+        </div>
+        <div class="edit-banner-actions">
+          <button class="btn-secondary" id="editCancelBtn">Annuler</button>
+          <button class="btn-primary" id="editSaveBtn">Enregistrer</button>
+        </div>
+      </div>
+
+      <div class="tabs">
+        <button class="tab active" data-tab="select">Sélection</button>
+        <button class="tab" data-tab="palette">Palette</button>
+        <button class="tab" data-tab="layers">Calques</button>
+        <button class="tab" data-tab="export">Export</button>
+      </div>
+
+      <!-- SELECT TAB -->
+      <div class="tab-panel active" data-panel="select">
+        <div id="selectionTools">
+          <div class="seg">
+            <button class="active" id="modeAddBtn">+ Ajouter zone</button>
+            <button id="modeSubBtn">− Retirer zone</button>
+          </div>
+
+          <div class="field-row">
+            <label><span>Tolérance de couleur</span><span id="toleranceVal">28</span></label>
+            <input type="range" id="toleranceSlider" min="0" max="100" value="28">
+          </div>
+
+          <div class="action-row">
+            <button class="btn-secondary" id="clearSelectionBtn">Vider la sélection</button>
+          </div>
+
+          <div style="height:1px; background:var(--line); margin:16px 0;"></div>
+        </div>
+
+        <div class="field-row">
+          <label><span>Intensité de la couleur</span><span id="intensityVal">100%</span></label>
+          <input type="range" id="intensitySlider" min="0" max="100" value="100">
+        </div>
+        <div class="checkbox-row">
+          <input type="checkbox" id="keepSatCheckbox">
+          <label for="keepSatCheckbox" style="margin:0;">Conserver la saturation d'origine (ne remplacer que la teinte)</label>
+        </div>
+
+        <div style="font-size:0.78rem; color:var(--paper-dim); margin-bottom:8px;">
+          Couleur choisie : <b id="currentColorName" style="color:var(--paper);">Aucune — va dans l'onglet Palette</b>
+        </div>
+
+        <div class="action-row" id="undoRedoRow">
+          <button class="btn-secondary" id="undoBtn">↶ Annuler</button>
+          <button class="btn-secondary" id="redoBtn">↷ Rétablir</button>
+        </div>
+        <div class="action-row" id="applyLayerRow">
+          <button class="btn-primary" id="applyLayerBtn">Appliquer comme calque</button>
+        </div>
+      </div>
+
+      <!-- PALETTE TAB -->
+      <div class="tab-panel" data-panel="palette">
+        <div class="search-row">
+          <input type="text" id="paletteSearch" placeholder="Rechercher une couleur…">
+        </div>
+        <div class="range-chips" id="rangeChips"></div>
+        <div class="swatch-grid" id="swatchGrid"></div>
+      </div>
+
+      <!-- LAYERS TAB -->
+      <div class="tab-panel" data-panel="layers">
+        <div id="layersList"><div class="layers-empty">Aucun calque appliqué pour l'instant.</div></div>
+      </div>
+
+      <!-- EXPORT TAB -->
+      <div class="tab-panel" data-panel="export">
+        <p class="export-note">
+          L'image est traitée à une résolution de travail réduite (max <span id="maxDimNote">2200</span>px de côté)
+          pour rester fluide sur mobile et compatible avec la sauvegarde automatique du navigateur.
+          C'est en général largement suffisant pour du partage en ligne ou une impression standard.
+        </p>
+        <div class="action-row">
+          <button class="btn-primary" id="exportBtn">Télécharger l'image (PNG)</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+</main>
+
+<div id="toast"></div>
+
+<div class="modal-backdrop" id="confirmModal">
+  <div class="modal">
+    <p id="confirmText">Es-tu sûr ?</p>
+    <div class="row">
+      <button class="btn-secondary" id="confirmCancelBtn">Annuler</button>
+      <button class="btn-primary" id="confirmOkBtn" style="background:var(--danger); color:#fff;">Confirmer</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+"use strict";
+
+/* =========================================================================
+   DONNÉES : palette de peintures Citadel (Games Workshop)
+   -------------------------------------------------------------------------
+   Liste complète des 271 teintes actuellement au catalogue officiel
+   Citadel Colour (Base, Layer, Shade, Contrast, Dry, Technical), établie
+   à partir des références et codes couleur publiés sur citadelcolour.com.
+   ⚠️ Games Workshop ne publie pas de code hexadécimal "officiel" unique par
+   teinte : les valeurs ci-dessous reprennent celles indiquées sur le site
+   de la marque, avec une moyenne calculée pour les peintures Shade,
+   Contrast et métalliques (qui sont présentées en dégradé sombre → clair
+   plutôt qu'en une seule teinte). Elles restent donc de bonnes
+   approximations plutôt que des valeurs garanties au pixel près.
+   Les gammes Air, Spray et les médiums/vernis purs (Lahmian Medium,
+   Ardcoat, etc.) ne sont pas incluses : elles dupliquent des teintes déjà
+   présentes ou ne sont pas des couleurs de peinture à proprement parler.
+   ========================================================================= */
+const CITADEL_PALETTE = [
+  // --- Base (sous-couches opaques) : 57 teintes ---
+  {name:"Abaddon Black", range:"Base", hex:"#000000"},
+  {name:"Averland Sunset", range:"Base", hex:"#fbb81c"},
+  {name:"Balthasar Gold", range:"Base", hex:"#8e6848"},
+  {name:"Barak-Nar Burgundy", range:"Base", hex:"#451636"},
+  {name:"Bugman's Glow", range:"Base", hex:"#804c43"},
+  {name:"Caledor Sky", range:"Base", hex:"#366699"},
+  {name:"Caliban Green", range:"Base", hex:"#003d15"},
+  {name:"Castellan Green", range:"Base", hex:"#264715"},
+  {name:"Catachan Flesh", range:"Base", hex:"#442b25"},
+  {name:"Celestra Grey", range:"Base", hex:"#8ba3a3"},
+  {name:"Corax White", range:"Base", hex:"#ffffff"},
+  {name:"Corvus Black", range:"Base", hex:"#171314"},
+  {name:"Daemonette Hide", range:"Base", hex:"#655f81"},
+  {name:"Death Guard Green", range:"Base", hex:"#6d774d"},
+  {name:"Death Korps Drab", range:"Base", hex:"#3d4539"},
+  {name:"Deathworld Forest", range:"Base", hex:"#556229"},
+  {name:"Dryad Bark", range:"Base", hex:"#2b2a24"},
+  {name:"Gal Vorbak Red", range:"Base", hex:"#4b213c"},
+  {name:"Grey Knights Steel", range:"Base", hex:"#a2abb1"},
+  {name:"Grey Seer", range:"Base", hex:"#a2a5a7"},
+  {name:"Hobgrot Hide", range:"Base", hex:"#a1812a"},
+  {name:"Incubi Darkness", range:"Base", hex:"#082e32"},
+  {name:"Ionrach Skin", range:"Base", hex:"#97a384"},
+  {name:"Iron Hands Steel", range:"Base", hex:"#999794"},
+  {name:"Iron Warriors", range:"Base", hex:"#7d7c7b"},
+  {name:"Jokaero Orange", range:"Base", hex:"#ed3814"},
+  {name:"Kantor Blue", range:"Base", hex:"#02134e"},
+  {name:"Khorne Red", range:"Base", hex:"#650001"},
+  {name:"Leadbelcher", range:"Base", hex:"#82878a"},
+  {name:"Lupercal Green", range:"Base", hex:"#002c2b"},
+  {name:"Macragge Blue", range:"Base", hex:"#0f3d7c"},
+  {name:"Mechanicus Standard Grey", range:"Base", hex:"#39484a"},
+  {name:"Mephiston Red", range:"Base", hex:"#960c09"},
+  {name:"Morghast Bone", range:"Base", hex:"#c0a973"},
+  {name:"Mournfang Brown", range:"Base", hex:"#490f06"},
+  {name:"Naggaroth Night", range:"Base", hex:"#3b2b50"},
+  {name:"Night Lords Blue", range:"Base", hex:"#002b5c"},
+  {name:"Nocturne Green", range:"Base", hex:"#162a29"},
+  {name:"Orruk Flesh", range:"Base", hex:"#8cc276"},
+  {name:"Phoenician Purple", range:"Base", hex:"#440052"},
+  {name:"Rakarth Flesh", range:"Base", hex:"#9c998d"},
+  {name:"Ratskin Flesh", range:"Base", hex:"#a86648"},
+  {name:"Retributor Armour", range:"Base", hex:"#c4ab8e"},
+  {name:"Rhinox Hide", range:"Base", hex:"#462f30"},
+  {name:"Runelord Brass", range:"Base", hex:"#877d75"},
+  {name:"Screamer Pink", range:"Base", hex:"#7a0e44"},
+  {name:"Screaming Bell", range:"Base", hex:"#ae8a6c"},
+  {name:"Steel Legion Drab", range:"Base", hex:"#584e2d"},
+  {name:"Stegadon Scale Green", range:"Base", hex:"#06455d"},
+  {name:"The Fang", range:"Base", hex:"#405b71"},
+  {name:"Thondia Brown", range:"Base", hex:"#54302a"},
+  {name:"Thousand Sons Blue", range:"Base", hex:"#00506f"},
+  {name:"Waaagh! Flesh", range:"Base", hex:"#0b3b36"},
+  {name:"Warplock Bronze", range:"Base", hex:"#9b6558"},
+  {name:"Wraithbone", range:"Base", hex:"#dbd1b2"},
+  {name:"XV-88", range:"Base", hex:"#6c4811"},
+  {name:"Zandri Dust", range:"Base", hex:"#988e56"},
+  // --- Layer (rehauts et transitions) : 93 teintes ---
+  {name:"Administratum Grey", range:"Layer", hex:"#989c94"},
+  {name:"Ahriman Blue", range:"Layer", hex:"#00708a"},
+  {name:"Alaitoc Blue", range:"Layer", hex:"#2f4f85"},
+  {name:"Altdorf Guard Blue", range:"Layer", hex:"#2d4696"},
+  {name:"Auric Armour Gold", range:"Layer", hex:"#d7a676"},
+  {name:"Baharroth Blue", range:"Layer", hex:"#54bdca"},
+  {name:"Balor Brown", range:"Layer", hex:"#875408"},
+  {name:"Baneblade Brown", range:"Layer", hex:"#8f7c68"},
+  {name:"Bestigor Flesh", range:"Layer", hex:"#d08951"},
+  {name:"Bloodreaver Flesh", range:"Layer", hex:"#6a4848"},
+  {name:"Blue Horror", range:"Layer", hex:"#9eb5ce"},
+  {name:"Brass Scorpion", range:"Layer", hex:"#9e6433"},
+  {name:"Cadian Fleshtone", range:"Layer", hex:"#c47652"},
+  {name:"Calgar Blue", range:"Layer", hex:"#2a497f"},
+  {name:"Canoptek Alloy", range:"Layer", hex:"#cabebc"},
+  {name:"Castellax Bronze", range:"Layer", hex:"#9c7969"},
+  {name:"Dark Reaper", range:"Layer", hex:"#354d4c"},
+  {name:"Dawnstone", range:"Layer", hex:"#697068"},
+  {name:"Deathclaw Brown", range:"Layer", hex:"#af634f"},
+  {name:"Dechala Lilac", range:"Layer", hex:"#b598c9"},
+  {name:"Deepkin Flesh", range:"Layer", hex:"#a9b79f"},
+  {name:"Doombull Brown", range:"Layer", hex:"#570003"},
+  {name:"Dorn Yellow", range:"Layer", hex:"#fff55a"},
+  {name:"Elysian Green", range:"Layer", hex:"#6b8c37"},
+  {name:"Emperor's Children", range:"Layer", hex:"#b74073"},
+  {name:"Eshin Grey", range:"Layer", hex:"#484b4e"},
+  {name:"Evil Sunz Scarlet", range:"Layer", hex:"#c01411"},
+  {name:"Fenrisian Grey", range:"Layer", hex:"#6d94b3"},
+  {name:"Fire Dragon Bright", range:"Layer", hex:"#f4874e"},
+  {name:"Flash Gitz Yellow", range:"Layer", hex:"#fff300"},
+  {name:"Flayed One Flesh", range:"Layer", hex:"#eec483"},
+  {name:"Fulgrim Pink", range:"Layer", hex:"#f3abca"},
+  {name:"Fulgurite Copper", range:"Layer", hex:"#aa806f"},
+  {name:"Gauss Blaster Green", range:"Layer", hex:"#7fc1a5"},
+  {name:"Gehenna's Gold", range:"Layer", hex:"#b87e1f"},
+  {name:"Genestealer Purple", range:"Layer", hex:"#7658a5"},
+  {name:"Gorthor Brown", range:"Layer", hex:"#5f463f"},
+  {name:"Hashut Copper", range:"Layer", hex:"#a47849"},
+  {name:"Hoeth Blue", range:"Layer", hex:"#4c78af"},
+  {name:"Ironbreaker", range:"Layer", hex:"#9a9a9a"},
+  {name:"Kabalite Green", range:"Layer", hex:"#008962"},
+  {name:"Kakophoni Purple", range:"Layer", hex:"#8869ae"},
+  {name:"Karak Stone", range:"Layer", hex:"#b7945c"},
+  {name:"Kislev Flesh", range:"Layer", hex:"#d1a570"},
+  {name:"Knight-Questor Flesh", range:"Layer", hex:"#996563"},
+  {name:"Krieg Khaki", range:"Layer", hex:"#bcbb7e"},
+  {name:"Liberator Gold", range:"Layer", hex:"#c3b292"},
+  {name:"Loren Forest", range:"Layer", hex:"#486c25"},
+  {name:"Lothern Blue", range:"Layer", hex:"#2c9bcc"},
+  {name:"Lugganath Orange", range:"Layer", hex:"#f69b82"},
+  {name:"Moot Green", range:"Layer", hex:"#3daf44"},
+  {name:"Nurgling Green", range:"Layer", hex:"#7e975e"},
+  {name:"Ogryn Camo", range:"Layer", hex:"#96a648"},
+  {name:"Pallid Wych Flesh", range:"Layer", hex:"#caccbb"},
+  {name:"Phalanx Yellow", range:"Layer", hex:"#ffe200"},
+  {name:"Pink Horror", range:"Layer", hex:"#8e2757"},
+  {name:"Runefang Steel", range:"Layer", hex:"#b6b9ba"},
+  {name:"Russ Grey", range:"Layer", hex:"#507085"},
+  {name:"Screaming Skull", range:"Layer", hex:"#b9c099"},
+  {name:"Skarsnik Green", range:"Layer", hex:"#588f6b"},
+  {name:"Skavenblight Dinge", range:"Layer", hex:"#45413b"},
+  {name:"Skrag Brown", range:"Layer", hex:"#8b4806"},
+  {name:"Skullcrusher Brass", range:"Layer", hex:"#e1c3a0"},
+  {name:"Slaanesh Grey", range:"Layer", hex:"#8b8893"},
+  {name:"Sons of Horus Green", range:"Layer", hex:"#00545e"},
+  {name:"Sotek Green", range:"Layer", hex:"#0b6371"},
+  {name:"Squig Orange", range:"Layer", hex:"#a74d42"},
+  {name:"Stormhost Silver", range:"Layer", hex:"#cbced0"},
+  {name:"Stormvermin Fur", range:"Layer", hex:"#6d655f"},
+  {name:"Straken Green", range:"Layer", hex:"#597f1c"},
+  {name:"Sybarite Green", range:"Layer", hex:"#17a166"},
+  {name:"Sycorax Bronze", range:"Layer", hex:"#ac9896"},
+  {name:"Tallarn Sand", range:"Layer", hex:"#a07409"},
+  {name:"Tau Light Ochre", range:"Layer", hex:"#bc6b10"},
+  {name:"Teclis Blue", range:"Layer", hex:"#3877bf"},
+  {name:"Temple Guard Blue", range:"Layer", hex:"#239489"},
+  {name:"Thunderhawk Blue", range:"Layer", hex:"#396a70"},
+  {name:"Troll Slayer Orange", range:"Layer", hex:"#f16c23"},
+  {name:"Tuskgor Fur", range:"Layer", hex:"#863231"},
+  {name:"Ulthuan Grey", range:"Layer", hex:"#c4ddd5"},
+  {name:"Ungor Flesh", range:"Layer", hex:"#d1a560"},
+  {name:"Ushabti Bone", range:"Layer", hex:"#aba173"},
+  {name:"Vulkan Green", range:"Layer", hex:"#223c2e"},
+  {name:"Warboss Green", range:"Layer", hex:"#317e57"},
+  {name:"Warpfiend Grey", range:"Layer", hex:"#66656e"},
+  {name:"Warpstone Glow", range:"Layer", hex:"#0f702a"},
+  {name:"Wazdakka Red", range:"Layer", hex:"#880804"},
+  {name:"White Scar", range:"Layer", hex:"#ffffff"},
+  {name:"Wild Rider Red", range:"Layer", hex:"#e82e1b"},
+  {name:"Word Bearers Red", range:"Layer", hex:"#620104"},
+  {name:"Xereus Purple", range:"Layer", hex:"#47125a"},
+  {name:"Yriel Yellow", range:"Layer", hex:"#ffd900"},
+  {name:"Zamesi Desert", range:"Layer", hex:"#d89d1b"},
+  // --- Shade (lavis / ombrages) : 19 teintes ---
+  {name:"Agrax Earthshade", range:"Shade", hex:"#87796a"},
+  {name:"Athonian Camoshade", range:"Shade", hex:"#8c8d67"},
+  {name:"Berserker Bloodshade", range:"Shade", hex:"#cb718a"},
+  {name:"Biel-Tan Green", range:"Shade", hex:"#608561"},
+  {name:"Carroburg Crimson", range:"Shade", hex:"#985f79"},
+  {name:"Casandora Yellow", range:"Shade", hex:"#f1b778"},
+  {name:"Coelia Greenshade", range:"Shade", hex:"#18766e"},
+  {name:"Drakenhof Nightshade", range:"Shade", hex:"#787d87"},
+  {name:"Druchii Violet", range:"Shade", hex:"#724c75"},
+  {name:"Fuegan Orange", range:"Shade", hex:"#a55d35"},
+  {name:"Kroak Green", range:"Shade", hex:"#aeccb4"},
+  {name:"Mortarion Grime", range:"Shade", hex:"#c7bf6b"},
+  {name:"Nuln Oil", range:"Shade", hex:"#777473"},
+  {name:"Poxwalker", range:"Shade", hex:"#99b9b9"},
+  {name:"Reikland Fleshshade", range:"Shade", hex:"#98775f"},
+  {name:"Seraphim Sepia", range:"Shade", hex:"#8b6642"},
+  {name:"Soulblight Grey", range:"Shade", hex:"#c2bdbd"},
+  {name:"Targor Rageshade", range:"Shade", hex:"#a0949e"},
+  {name:"Tyran Blue", range:"Shade", hex:"#6faed0"},
+  // --- Contrast (teinte + ombrage en une passe) : 61 teintes ---
+  {name:"Aeldari Emerald", range:"Contrast", hex:"#007166"},
+  {name:"Aethermatic Blue", range:"Contrast", hex:"#4194a5"},
+  {name:"Aggaros Dunes", range:"Contrast", hex:"#928551"},
+  {name:"Akhelian Green", range:"Contrast", hex:"#005f77"},
+  {name:"Apothecary White", range:"Contrast", hex:"#c2d4e3"},
+  {name:"Asurmen Blue", range:"Contrast", hex:"#005a94"},
+  {name:"Baal Red", range:"Contrast", hex:"#ca1a26"},
+  {name:"Bad Moon Yellow", range:"Contrast", hex:"#fdc70c"},
+  {name:"Basilicanum Grey", range:"Contrast", hex:"#4c4c4b"},
+  {name:"Black Legion", range:"Contrast", hex:"#212122"},
+  {name:"Black Templar", range:"Contrast", hex:"#353534"},
+  {name:"Blood Angels Red", range:"Contrast", hex:"#9b0e12"},
+  {name:"Briar Queen Chill", range:"Contrast", hex:"#6aa8b9"},
+  {name:"Celestium Blue", range:"Contrast", hex:"#134a86"},
+  {name:"Creed Camo", range:"Contrast", hex:"#2e7046"},
+  {name:"Cygor Brown", range:"Contrast", hex:"#522b28"},
+  {name:"Dark Angels Green", range:"Contrast", hex:"#002722"},
+  {name:"Darkoath Flesh", range:"Contrast", hex:"#af756b"},
+  {name:"Doomfire Magenta", range:"Contrast", hex:"#c90077"},
+  {name:"Dreadful Visage", range:"Contrast", hex:"#b6a1b6"},
+  {name:"Flesh Tearers Red", range:"Contrast", hex:"#610705"},
+  {name:"Frostheart", range:"Contrast", hex:"#00547a"},
+  {name:"Fyreslayer Flesh", range:"Contrast", hex:"#8d5d4b"},
+  {name:"Garaghak's Sewer", range:"Contrast", hex:"#6e5027"},
+  {name:"Gore-Grunta Fur", range:"Contrast", hex:"#713c14"},
+  {name:"Gryph-Charger Grey", range:"Contrast", hex:"#558ba7"},
+  {name:"Gryph-Hound Orange", range:"Contrast", hex:"#b2421b"},
+  {name:"Guilliman Flesh", range:"Contrast", hex:"#b1675a"},
+  {name:"Gutrippa Flesh", range:"Contrast", hex:"#548856"},
+  {name:"Hexwraith Flame", range:"Contrast", hex:"#00a237"},
+  {name:"Imperial Fist", range:"Contrast", hex:"#fbad16"},
+  {name:"Ironjawz Yellow", range:"Contrast", hex:"#d5a335"},
+  {name:"Iyanden Yellow", range:"Contrast", hex:"#e69915"},
+  {name:"Karandras Green", range:"Contrast", hex:"#007938"},
+  {name:"Kroxigor Scales", range:"Contrast", hex:"#00798d"},
+  {name:"Leviadon Blue", range:"Contrast", hex:"#00162c"},
+  {name:"Leviathan Purple", range:"Contrast", hex:"#17034c"},
+  {name:"Luxion Purple", range:"Contrast", hex:"#350f60"},
+  {name:"Magmadroth Flame", range:"Contrast", hex:"#e45726"},
+  {name:"Magos Purple", range:"Contrast", hex:"#94658d"},
+  {name:"Mantis Warriors Green", range:"Contrast", hex:"#5d893d"},
+  {name:"Militarum Green", range:"Contrast", hex:"#7b8426"},
+  {name:"Nazdreg Yellow", range:"Contrast", hex:"#936800"},
+  {name:"Nighthaunt Gloom", range:"Contrast", hex:"#4c838a"},
+  {name:"Ork Flesh", range:"Contrast", hex:"#006823"},
+  {name:"Plaguebearer Flesh", range:"Contrast", hex:"#909c52"},
+  {name:"Pylar Glacier", range:"Contrast", hex:"#3aafe4"},
+  {name:"Ratling Grime", range:"Contrast", hex:"#66605e"},
+  {name:"Shyish Purple", range:"Contrast", hex:"#3b2050"},
+  {name:"Sigvald Burgundy", range:"Contrast", hex:"#6d004e"},
+  {name:"Skeleton Horde", range:"Contrast", hex:"#beb18d"},
+  {name:"Snakebite Leather", range:"Contrast", hex:"#83571e"},
+  {name:"Space Wolves Grey", range:"Contrast", hex:"#476c8c"},
+  {name:"Stormfiend", range:"Contrast", hex:"#00517d"},
+  {name:"Striking Scorpion Green", range:"Contrast", hex:"#09803b"},
+  {name:"Talassar Blue", range:"Contrast", hex:"#004f8d"},
+  {name:"Terradon Turquoise", range:"Contrast", hex:"#006b7a"},
+  {name:"Ultramarines Blue", range:"Contrast", hex:"#142c5e"},
+  {name:"Volupus Pink", range:"Contrast", hex:"#71012a"},
+  {name:"Warp Lightning", range:"Contrast", hex:"#007234"},
+  {name:"Wyldwood", range:"Contrast", hex:"#513631"},
+  // --- Dry (brossage à sec) : 24 teintes ---
+  {name:"Astorath Red", range:"Dry", hex:"#a9311e"},
+  {name:"Dawnstone", range:"Dry", hex:"#697068"},
+  {name:"Eldar Flesh", range:"Dry", hex:"#e8c07f"},
+  {name:"Etherium Blue", range:"Dry", hex:"#9eb5ce"},
+  {name:"Golden Griffon", range:"Dry", hex:"#c3b292"},
+  {name:"Golgfag Brown", range:"Dry", hex:"#8f502a"},
+  {name:"Hexos Palesun", range:"Dry", hex:"#fff55a"},
+  {name:"Hoeth Blue", range:"Dry", hex:"#4c78af"},
+  {name:"Imrik Blue", range:"Dry", hex:"#208abf"},
+  {name:"Longbeard Grey", range:"Dry", hex:"#dbdcc6"},
+  {name:"Lucius Lilac", range:"Dry", hex:"#b598c9"},
+  {name:"Necron Compound", range:"Dry", hex:"#cbced0"},
+  {name:"Niblet Green", range:"Dry", hex:"#378c35"},
+  {name:"Nurgling Green", range:"Dry", hex:"#7e975e"},
+  {name:"Praxeti White", range:"Dry", hex:"#ffffff"},
+  {name:"Ryza Rust", range:"Dry", hex:"#f16c23"},
+  {name:"Sigmarite", range:"Dry", hex:"#dda755"},
+  {name:"Skink Blue", range:"Dry", hex:"#54bdca"},
+  {name:"Stormfang", range:"Dry", hex:"#5a7fa3"},
+  {name:"Sylvaneth Bark", range:"Dry", hex:"#4e483b"},
+  {name:"Terminatus Stone", range:"Dry", hex:"#c8b79d"},
+  {name:"Tyrant Skull", range:"Dry", hex:"#c8c483"},
+  {name:"Underhive Ash", range:"Dry", hex:"#bcbb7e"},
+  {name:"Wrack White", range:"Dry", hex:"#d3d0cf"},
+  // --- Technical (effets spéciaux, textures, médiums) : 17 teintes ---
+  {name:"Agrellan Badland", range:"Technical", hex:"#a38f72"},
+  {name:"Agrellan Earth", range:"Technical", hex:"#a38f72"},
+  {name:"Armageddon Dust", range:"Technical", hex:"#ddc037"},
+  {name:"Astrogranite", range:"Technical", hex:"#898989"},
+  {name:"Blood For The Blood God", range:"Technical", hex:"#79282c"},
+  {name:"Martian Ironcrust", range:"Technical", hex:"#b5604f"},
+  {name:"Martian Ironearth", range:"Technical", hex:"#b5604f"},
+  {name:"Mordant Earth", range:"Technical", hex:"#312d2e"},
+  {name:"Nihilakh Oxide", range:"Technical", hex:"#66b39a"},
+  {name:"Nurgles Rot", range:"Technical", hex:"#9d8b16"},
+  {name:"Soulstone Blue", range:"Technical", hex:"#2b3c69"},
+  {name:"Spiritstone Red", range:"Technical", hex:"#92382a"},
+  {name:"Stirland Mud", range:"Technical", hex:"#5c3a06"},
+  {name:"Tesseract Glow", range:"Technical", hex:"#49ad33"},
+  {name:"Typhus Corrosion", range:"Technical", hex:"#373a22"},
+  {name:"Valhallan Blizzard", range:"Technical", hex:"#f0f0f0"},
+  {name:"Waystone Green", range:"Technical", hex:"#2a5944"},
+];
+
+const RANGES = ["Tous", "Base", "Layer", "Shade", "Contrast", "Technical", "Dry"];
+
+/* =========================================================================
+   CONSTANTES / ÉTAT GLOBAL
+   ========================================================================= */
+const MAX_DIMENSION = 2200; // taille de travail max (voir note dans l'onglet Export)
+document.getElementById("maxDimNote").textContent = MAX_DIMENSION;
+
+const STORAGE_KEY = "repeindre_project_v1";
+
+const state = {
+  workW: 0, workH: 0,
+  baseImageData: null,     // ImageData d'origine (résolution de travail), jamais modifiée
+  layers: [],              // [{id, name, range, hex, intensity, keepSat, maskDataURL, maskArr}]
+  currentSelection: null,  // Uint8Array (0/1) taille workW*workH, ou null
+  selectionMode: "add",    // "add" | "subtract"
+  tolerance: 28,
+  intensity: 100,
+  keepSat: false,
+  chosenColor: null,       // {name, range, hex}
+  history: [],             // pile d'états de state.layers (pour undo)
+  redoStack: [],
+  zoom: 1, minZoom: 0.2, maxZoom: 6,
+  panX: 0, panY: 0,
+  showingBefore: false,
+  nextLayerId: 1,
+  viewMode: "select", // "select" (tap = sélection baguette magique) | "pan" (glisser = déplacer la vue)
+  editingLayerId: null, // id du calque en cours de modification de teinte, ou null
+};
+
+/* =========================================================================
+   UTILITAIRES COULEUR
+   ========================================================================= */
+function hexToRgb(hex){
+  const h = hex.replace("#","");
+  return {
+    r: parseInt(h.substring(0,2),16),
+    g: parseInt(h.substring(2,4),16),
+    b: parseInt(h.substring(4,6),16),
+  };
+}
+
+function rgbToHsl(r,g,b){
+  r/=255; g/=255; b/=255;
+  const max=Math.max(r,g,b), min=Math.min(r,g,b);
+  let h,s,l=(max+min)/2;
+  if(max===min){ h=0; s=0; }
+  else{
+    const d=max-min;
+    s = l>0.5 ? d/(2-max-min) : d/(max+min);
+    switch(max){
+      case r: h=(g-b)/d+(g<b?6:0); break;
+      case g: h=(b-r)/d+2; break;
+      default: h=(r-g)/d+4;
+    }
+    h/=6;
+  }
+  return [h,s,l];
+}
+
+function hue2rgb(p,q,t){
+  if(t<0) t+=1;
+  if(t>1) t-=1;
+  if(t<1/6) return p+(q-p)*6*t;
+  if(t<1/2) return q;
+  if(t<2/3) return p+(q-p)*(2/3-t)*6;
+  return p;
+}
+
+function hslToRgb(h,s,l){
+  let r,g,b;
+  if(s===0){ r=g=b=l; }
+  else{
+    const q = l<0.5 ? l*(1+s) : l+s-l*s;
+    const p = 2*l-q;
+    r = hue2rgb(p,q,h+1/3);
+    g = hue2rgb(p,q,h);
+    b = hue2rgb(p,q,h-1/3);
+  }
+  return [Math.round(r*255), Math.round(g*255), Math.round(b*255)];
+}
+
+/* =========================================================================
+   TOAST / MODAL
+   ========================================================================= */
+let toastTimer=null;
+function toast(msg){
+  const el=document.getElementById("toast");
+  el.textContent=msg;
+  el.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer=setTimeout(()=>el.classList.remove("show"), 2200);
+}
+
+function confirmDialog(text){
+  return new Promise((resolve)=>{
+    const modal=document.getElementById("confirmModal");
+    document.getElementById("confirmText").textContent=text;
+    modal.classList.add("show");
+    const ok=document.getElementById("confirmOkBtn");
+    const cancel=document.getElementById("confirmCancelBtn");
+    function cleanup(v){
+      modal.classList.remove("show");
+      ok.removeEventListener("click", onOk);
+      cancel.removeEventListener("click", onCancel);
+      resolve(v);
+    }
+    function onOk(){ cleanup(true); }
+    function onCancel(){ cleanup(false); }
+    ok.addEventListener("click", onOk);
+    cancel.addEventListener("click", onCancel);
+  });
+}
+
+/* =========================================================================
+   CHARGEMENT D'IMAGE
+   ========================================================================= */
+function loadImageFile(file){
+  const reader = new FileReader();
+  reader.onload = (e)=>{
+    const img = new Image();
+    img.onload = ()=> setupNewProject(img);
+    img.onerror = ()=> toast("Impossible de lire cette image.");
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+function setupNewProject(img){
+  let w = img.naturalWidth, h = img.naturalHeight;
+  const scale = Math.min(1, MAX_DIMENSION / Math.max(w,h));
+  w = Math.round(w*scale);
+  h = Math.round(h*scale);
+
+  const off = document.createElement("canvas");
+  off.width = w; off.height = h;
+  const octx = off.getContext("2d");
+  octx.drawImage(img, 0, 0, w, h);
+
+  state.workW = w; state.workH = h;
+  state.baseImageData = octx.getImageData(0,0,w,h);
+  state.layers = [];
+  state.currentSelection = null;
+  state.history = [];
+  state.redoStack = [];
+  state.nextLayerId = 1;
+  exitLayerEditMode();
+
+  fitZoomToScreen();
+  showEditor();
+  renderComposite();
+  renderLayersList();
+  saveProject();
+}
+
+/* =========================================================================
+   FLOOD FILL (baguette magique)
+   ========================================================================= */
+function floodFillSelect(startX, startY, tolerance){
+  const {workW:w, workH:h, baseImageData} = state;
+  const data = baseImageData.data;
+  const idx0 = (startY*w+startX)*4;
+  const r0=data[idx0], g0=data[idx0+1], b0=data[idx0+2];
+  const thresh = (tolerance/100) * 441.7; // distance euclidienne RGB max ≈ sqrt(3*255^2)
+
+  const mask = new Uint8Array(w*h);
+  const visited = new Uint8Array(w*h);
+  const stack = [startY*w+startX];
+  visited[startY*w+startX] = 1;
+
+  while(stack.length){
+    const p = stack.pop();
+    const x = p % w, y = (p - x) / w;
+    const i = p*4;
+    const dr = data[i]-r0, dg = data[i+1]-g0, db = data[i+2]-b0;
+    const dist = Math.sqrt(dr*dr+dg*dg+db*db);
+    if(dist > thresh) continue;
+    mask[p] = 1;
+
+    if(x>0 && !visited[p-1]){ visited[p-1]=1; stack.push(p-1); }
+    if(x<w-1 && !visited[p+1]){ visited[p+1]=1; stack.push(p+1); }
+    if(y>0 && !visited[p-w]){ visited[p-w]=1; stack.push(p-w); }
+    if(y<h-1 && !visited[p+w]){ visited[p+w]=1; stack.push(p+w); }
+  }
+  return mask;
+}
+
+function applySelectionOp(newMask){
+  if(!state.currentSelection){
+    state.currentSelection = new Uint8Array(state.workW*state.workH);
+  }
+  const sel = state.currentSelection;
+  if(state.selectionMode === "add"){
+    for(let i=0;i<sel.length;i++){ if(newMask[i]) sel[i]=1; }
+  } else {
+    for(let i=0;i<sel.length;i++){ if(newMask[i]) sel[i]=0; }
+  }
+}
+
+/* =========================================================================
+   RECOLORATION (HSL : teinte remplacée, luminosité d'origine préservée)
+   ========================================================================= */
+function recolorPixel(r,g,b, targetHex, intensity01, keepSat){
+  const [h0,s0,l0] = rgbToHsl(r,g,b);
+  const target = hexToRgb(targetHex);
+  const [ht, st] = rgbToHsl(target.r, target.g, target.b);
+
+  const newH = ht;
+  const newS = keepSat ? s0 : st;
+  const [nr, ng, nb] = hslToRgb(newH, newS, l0);
+
+  const outR = r + (nr - r) * intensity01;
+  const outG = g + (ng - g) * intensity01;
+  const outB = b + (nb - b) * intensity01;
+  return [outR, outG, outB];
+}
+
+/* Construit l'ImageData composite : base + tous les calques, dans l'ordre.
+   Si un calque est en cours de modification (state.editingLayerId), on
+   utilise en aperçu live la couleur / intensité / saturation actuellement
+   réglées dans le panneau plutôt que les valeurs enregistrées du calque,
+   sans toucher au masque (la zone sélectionnée ne change pas). */
+function buildComposite(){
+  const {workW:w, workH:h, baseImageData} = state;
+  const out = new ImageData(new Uint8ClampedArray(baseImageData.data), w, h);
+  const data = out.data;
+
+  for(const layer of state.layers){
+    const mask = layer.maskArr;
+    let hex = layer.hex, intensity01 = layer.intensity/100, keepSat = layer.keepSat;
+    if(state.editingLayerId === layer.id){
+      if(state.chosenColor) hex = state.chosenColor.hex;
+      intensity01 = state.intensity/100;
+      keepSat = state.keepSat;
+    }
+    for(let p=0;p<mask.length;p++){
+      if(!mask[p]) continue;
+      const i = p*4;
+      const [nr,ng,nb] = recolorPixel(data[i],data[i+1],data[i+2], hex, intensity01, keepSat);
+      data[i]=nr; data[i+1]=ng; data[i+2]=nb;
+    }
+  }
+  return out;
+}
+
+/* =========================================================================
+   RENDU / CANVAS / ZOOM / PAN
+   ========================================================================= */
+const viewCanvas = document.getElementById("viewCanvas");
+const vctx = viewCanvas.getContext("2d");
+const canvasWrap = document.getElementById("canvasWrap");
+
+let compositeCache = null; // ImageData du composite courant, recalculé quand les calques changent
+
+function invalidateComposite(){
+  compositeCache = buildComposite();
+}
+
+function fitZoomToScreen(){
+  const rect = canvasWrap.getBoundingClientRect();
+  const scale = Math.min(rect.width/state.workW, rect.height/state.workH) * 0.94;
+  state.zoom = Math.max(state.minZoom, Math.min(state.maxZoom, scale));
+  state.panX = (rect.width - state.workW*state.zoom)/2;
+  state.panY = (rect.height - state.workH*state.zoom)/2;
+}
+
+function resizeCanvasToWrap(){
+  const rect = canvasWrap.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  viewCanvas.width = rect.width*dpr;
+  viewCanvas.height = rect.height*dpr;
+  viewCanvas.style.width = rect.width+"px";
+  viewCanvas.style.height = rect.height+"px";
+  vctx.setTransform(dpr,0,0,dpr,0,0);
+}
+
+function renderComposite(){
+  if(!state.baseImageData) return;
+  invalidateComposite();
+  drawFrame();
+}
+
+function drawFrame(){
+  if(!state.baseImageData) return;
+  resizeCanvasToWrap();
+  const rect = canvasWrap.getBoundingClientRect();
+  vctx.clearRect(0,0,rect.width,rect.height);
+  vctx.imageSmoothingEnabled = true;
+
+  // Image de fond : composite (ou originale si mode avant/après)
+  const srcData = state.showingBefore ? state.baseImageData : compositeCache;
+  const tmp = document.createElement("canvas");
+  tmp.width = state.workW; tmp.height = state.workH;
+  tmp.getContext("2d").putImageData(srcData, 0, 0);
+
+  vctx.save();
+  vctx.translate(state.panX, state.panY);
+  vctx.scale(state.zoom, state.zoom);
+  vctx.drawImage(tmp, 0, 0);
+
+  // Overlay de sélection courante (hachures magenta semi-transparentes)
+  if(state.currentSelection && !state.showingBefore && !state.editingLayerId){
+    const overlay = document.createElement("canvas");
+    overlay.width = state.workW; overlay.height = state.workH;
+    const octx = overlay.getContext("2d");
+    const odata = octx.createImageData(state.workW, state.workH);
+    const sel = state.currentSelection;
+    for(let p=0;p<sel.length;p++){
+      if(sel[p]){
+        const i=p*4;
+        odata.data[i]=232; odata.data[i+1]=90; odata.data[i+2]=200; odata.data[i+3]=110;
+      }
+    }
+    octx.putImageData(odata,0,0);
+    vctx.drawImage(overlay,0,0);
+  }
+
+  // Overlay de la zone du calque en cours de modification (teinte cyan)
+  if(state.editingLayerId && !state.showingBefore){
+    const editingLayer = state.layers.find(l=>l.id===state.editingLayerId);
+    if(editingLayer){
+      const overlay = document.createElement("canvas");
+      overlay.width = state.workW; overlay.height = state.workH;
+      const octx = overlay.getContext("2d");
+      const odata = octx.createImageData(state.workW, state.workH);
+      const mask = editingLayer.maskArr;
+      for(let p=0;p<mask.length;p++){
+        if(mask[p]){
+          const i=p*4;
+          odata.data[i]=90; odata.data[i+1]=220; odata.data[i+2]=232; odata.data[i+3]=70;
+        }
+      }
+      octx.putImageData(odata,0,0);
+      vctx.drawImage(overlay,0,0);
+    }
+  }
+  vctx.restore();
+  updateZoomUI();
+}
+
+function fullRedraw(){ renderComposite(); }
+
+// --- Pan / zoom tactile (pinch) et souris ---
+// NB : la sélection et le déplacement de vue partagent le même canvas et
+// les mêmes gestes à un doigt. Deux points étaient à corriger :
+//  1) les boutons superposés au canvas (zoom, avant/après, mode) laissaient
+//     leur pointerdown remonter (bubbling) jusqu'au canvasWrap, qui les
+//     interprétait comme un début de geste de sélection/pan — d'où des
+//     sélections parasites ou des boutons peu réactifs au toucher.
+//  2) le seuil de 4px pour distinguer un "tap" d'un "glisser" était trop
+//     strict sur mobile (le doigt bouge naturellement de quelques pixels
+//     pendant un tap), ce qui faisait rater beaucoup de sélections.
+const TAP_MOVE_THRESHOLD = 10; // px CSS — tolérance avant de considérer que le doigt "glisse"
+const TAP_MAX_DURATION = 500;  // ms
+
+let pointers = new Map();
+let lastPinchDist = null;
+let lastPinchCenter = null;
+let dragStart = null;
+
+function isOverlayControl(target){
+  return !!(target && target.closest && target.closest(".zoom-controls, .mode-badge, .ba-toggle"));
+}
+
+canvasWrap.addEventListener("pointerdown", (e)=>{
+  if(isOverlayControl(e.target)) return; // laisse les boutons overlay gérer leur propre clic
+  canvasWrap.setPointerCapture(e.pointerId);
+  pointers.set(e.pointerId, {x:e.clientX, y:e.clientY});
+  if(pointers.size===1){
+    dragStart = {x:e.clientX, y:e.clientY, panX:state.panX, panY:state.panY, moved:false, t:Date.now()};
+  } else if(pointers.size===2){
+    dragStart = null;
+    const pts = [...pointers.values()];
+    lastPinchDist = Math.hypot(pts[0].x-pts[1].x, pts[0].y-pts[1].y);
+    lastPinchCenter = {x:(pts[0].x+pts[1].x)/2, y:(pts[0].y+pts[1].y)/2};
+  }
+});
+
+canvasWrap.addEventListener("pointermove", (e)=>{
+  if(!pointers.has(e.pointerId)) return;
+  pointers.set(e.pointerId, {x:e.clientX, y:e.clientY});
+
+  if(pointers.size===1 && dragStart){
+    const dx = e.clientX-dragStart.x, dy = e.clientY-dragStart.y;
+    if(Math.abs(dx)>TAP_MOVE_THRESHOLD || Math.abs(dy)>TAP_MOVE_THRESHOLD) dragStart.moved=true;
+    // En mode "Déplacer", un doigt fait glisser la vue.
+    // En mode "Sélectionner", un doigt ne déplace jamais la vue : ça évite
+    // qu'un tap légèrement tremblant soit interprété comme un pan et rate
+    // la sélection. Pour repositionner la vue en mode sélection, on peut
+    // toujours utiliser deux doigts (pan + zoom combinés, voir ci-dessous).
+    if(state.viewMode==="pan" && dragStart.moved){
+      state.panX = dragStart.panX+dx;
+      state.panY = dragStart.panY+dy;
+      drawFrame();
+    }
+  } else if(pointers.size===2){
+    const pts = [...pointers.values()];
+    const dist = Math.hypot(pts[0].x-pts[1].x, pts[0].y-pts[1].y);
+    const cx = (pts[0].x+pts[1].x)/2, cy = (pts[0].y+pts[1].y)/2;
+    const rect = canvasWrap.getBoundingClientRect();
+    if(lastPinchDist){
+      const factor = dist/lastPinchDist;
+      zoomAt(cx-rect.left, cy-rect.top, factor);
+    }
+    if(lastPinchCenter){
+      state.panX += cx-lastPinchCenter.x;
+      state.panY += cy-lastPinchCenter.y;
+      drawFrame();
+    }
+    lastPinchDist = dist;
+    lastPinchCenter = {x:cx, y:cy};
+  }
+});
+
+function endPointer(e){
+  const wasSingleTap = state.viewMode==="select" && pointers.size===1 && dragStart
+    && !dragStart.moved && (Date.now()-dragStart.t)<TAP_MAX_DURATION;
+  pointers.delete(e.pointerId);
+  if(pointers.size<2){ lastPinchDist=null; lastPinchCenter=null; }
+  if(wasSingleTap){
+    handleCanvasTap(dragStart.x, dragStart.y);
+  }
+  if(pointers.size===0) dragStart=null;
+}
+canvasWrap.addEventListener("pointerup", endPointer);
+canvasWrap.addEventListener("pointercancel", endPointer);
+
+// Molette de souris (desktop) : zoom centré sur le curseur.
+canvasWrap.addEventListener("wheel", (e)=>{
+  if(!state.baseImageData) return;
+  e.preventDefault();
+  const rect = canvasWrap.getBoundingClientRect();
+  const factor = e.deltaY < 0 ? 1.12 : 1/1.12;
+  zoomAt(e.clientX-rect.left, e.clientY-rect.top, factor);
+}, {passive:false});
+
+function zoomAt(screenX, screenY, factor){
+  const newZoom = Math.max(state.minZoom, Math.min(state.maxZoom, state.zoom*factor));
+  const worldX = (screenX-state.panX)/state.zoom;
+  const worldY = (screenY-state.panY)/state.zoom;
+  state.panX = screenX - worldX*newZoom;
+  state.panY = screenY - worldY*newZoom;
+  state.zoom = newZoom;
+  drawFrame();
+}
+
+function updateZoomUI(){
+  const label = document.getElementById("zoomLevelLabel");
+  if(label) label.textContent = Math.round(state.zoom*100)+"%";
+  const inBtn = document.getElementById("zoomInBtn");
+  const outBtn = document.getElementById("zoomOutBtn");
+  if(inBtn) inBtn.disabled = state.zoom >= state.maxZoom - 0.001;
+  if(outBtn) outBtn.disabled = state.zoom <= state.minZoom + 0.001;
+}
+
+document.getElementById("zoomInBtn").addEventListener("click", ()=>{
+  const rect = canvasWrap.getBoundingClientRect();
+  zoomAt(rect.width/2, rect.height/2, 1.35);
+});
+document.getElementById("zoomOutBtn").addEventListener("click", ()=>{
+  const rect = canvasWrap.getBoundingClientRect();
+  zoomAt(rect.width/2, rect.height/2, 1/1.35);
+});
+document.getElementById("zoomResetBtn").addEventListener("click", ()=>{
+  fitZoomToScreen(); drawFrame();
+});
+document.getElementById("centerBtn").addEventListener("click", ()=>{
+  // Recentre l'image dans l'espace de travail SANS changer le niveau de zoom.
+  const rect = canvasWrap.getBoundingClientRect();
+  state.panX = (rect.width - state.workW*state.zoom)/2;
+  state.panY = (rect.height - state.workH*state.zoom)/2;
+  drawFrame();
+});
+
+document.getElementById("viewModeToggle").addEventListener("click", ()=>{
+  state.viewMode = state.viewMode==="select" ? "pan" : "select";
+  const badge = document.getElementById("viewModeToggle");
+  const icon = document.getElementById("viewModeIcon");
+  const label = document.getElementById("modeLabel");
+  if(state.viewMode==="pan"){
+    badge.classList.add("pan-mode");
+    icon.textContent = "✋";
+    label.textContent = "Déplacer";
+    toast("Mode Déplacer/Zoomer : glisse un doigt pour bouger la vue.");
+  } else {
+    badge.classList.remove("pan-mode");
+    icon.textContent = "🎯";
+    label.textContent = "Sélectionner";
+    toast("Mode Sélectionner : tape sur une zone pour la sélectionner.");
+  }
+});
+
+window.addEventListener("resize", ()=>{ if(state.baseImageData) drawFrame(); });
+
+function handleCanvasTap(clientX, clientY){
+  if(!state.baseImageData || state.showingBefore) return;
+  if(state.editingLayerId){
+    toast("Termine ou annule la modification du calque avant de sélectionner une nouvelle zone.");
+    return;
+  }
+  const rect = canvasWrap.getBoundingClientRect();
+  const sx = clientX-rect.left, sy = clientY-rect.top;
+  const wx = Math.floor((sx-state.panX)/state.zoom);
+  const wy = Math.floor((sy-state.panY)/state.zoom);
+  if(wx<0||wy<0||wx>=state.workW||wy>=state.workH) return;
+
+  const mask = floodFillSelect(wx, wy, state.tolerance);
+  applySelectionOp(mask);
+  drawFrame();
+}
+
+/* =========================================================================
+   PALETTE UI
+   ========================================================================= */
+const swatchGrid = document.getElementById("swatchGrid");
+const rangeChips = document.getElementById("rangeChips");
+let activeRange = "Tous";
+let searchTerm = "";
+
+RANGES.forEach((r)=>{
+  const chip = document.createElement("button");
+  chip.className = "chip"+(r==="Tous"?" active":"");
+  chip.textContent = r;
+  chip.addEventListener("click", ()=>{
+    activeRange = r;
+    [...rangeChips.children].forEach(c=>c.classList.toggle("active", c===chip));
+    renderPalette();
+  });
+  rangeChips.appendChild(chip);
+});
+
+document.getElementById("paletteSearch").addEventListener("input", (e)=>{
+  searchTerm = e.target.value.trim().toLowerCase();
+  renderPalette();
+});
+
+function renderPalette(){
+  swatchGrid.innerHTML="";
+  const list = CITADEL_PALETTE.filter(c=>{
+    const matchRange = activeRange==="Tous" || c.range===activeRange;
+    const matchSearch = !searchTerm || c.name.toLowerCase().includes(searchTerm);
+    return matchRange && matchSearch;
+  });
+  if(list.length===0){
+    swatchGrid.innerHTML = '<div class="swatch-empty">Aucune couleur ne correspond.</div>';
+    return;
+  }
+  list.forEach(c=>{
+    const cell = document.createElement("div");
+    cell.className = "swatch-cell";
+    const sw = document.createElement("div");
+    sw.className = "swatch"+(state.chosenColor && state.chosenColor.hex===c.hex && state.chosenColor.name===c.name ? " selected":"");
+    sw.style.background = c.hex;
+    sw.title = c.name+" ("+c.range+")";
+    sw.addEventListener("click", ()=>{
+      state.chosenColor = c;
+      document.getElementById("currentColorName").textContent = c.name+" · "+c.range;
+      renderPalette();
+      if(state.editingLayerId){
+        document.getElementById("editBannerName").textContent = c.name+" · "+c.range;
+        document.getElementById("editBannerSwatch").style.background = c.hex;
+        renderComposite();
+        toast("Aperçu : "+c.name+" — pense à Enregistrer.");
+      } else {
+        switchTab("select");
+        toast("Couleur sélectionnée : "+c.name);
+      }
+    });
+    const label = document.createElement("div");
+    label.className = "swatch-name";
+    label.textContent = c.name;
+    cell.appendChild(sw); cell.appendChild(label);
+    swatchGrid.appendChild(cell);
+  });
+}
+renderPalette();
+
+/* =========================================================================
+   ONGLET S : sélection / réglages
+   ========================================================================= */
+document.getElementById("toleranceSlider").addEventListener("input", (e)=>{
+  state.tolerance = +e.target.value;
+  document.getElementById("toleranceVal").textContent = state.tolerance;
+});
+document.getElementById("intensitySlider").addEventListener("input", (e)=>{
+  state.intensity = +e.target.value;
+  document.getElementById("intensityVal").textContent = state.intensity+"%";
+  if(state.editingLayerId) renderComposite();
+});
+document.getElementById("keepSatCheckbox").addEventListener("change", (e)=>{
+  state.keepSat = e.target.checked;
+  if(state.editingLayerId) renderComposite();
+});
+
+document.getElementById("modeAddBtn").addEventListener("click", ()=>{
+  state.selectionMode="add";
+  document.getElementById("modeAddBtn").classList.add("active");
+  document.getElementById("modeSubBtn").classList.remove("active");
+});
+document.getElementById("modeSubBtn").addEventListener("click", ()=>{
+  state.selectionMode="subtract";
+  document.getElementById("modeSubBtn").classList.add("active");
+  document.getElementById("modeAddBtn").classList.remove("active");
+});
+
+document.getElementById("clearSelectionBtn").addEventListener("click", ()=>{
+  state.currentSelection = null;
+  drawFrame();
+});
+
+document.getElementById("applyLayerBtn").addEventListener("click", ()=>{
+  if(state.editingLayerId) return; // le bouton est masqué en mode édition, garde-fou
+  if(!state.currentSelection || !state.currentSelection.some(v=>v)){
+    toast("Sélectionne d'abord une zone avec la baguette magique.");
+    return;
+  }
+  if(!state.chosenColor){
+    toast("Choisis une couleur dans l'onglet Palette.");
+    return;
+  }
+  pushHistory();
+  const layer = {
+    id: state.nextLayerId++,
+    name: state.chosenColor.name,
+    range: state.chosenColor.range,
+    hex: state.chosenColor.hex,
+    intensity: state.intensity,
+    keepSat: state.keepSat,
+    maskArr: state.currentSelection,
+  };
+  state.layers.push(layer);
+  state.currentSelection = null;
+  renderComposite();
+  renderLayersList();
+  saveProject();
+  toast("Calque ajouté : "+layer.name);
+});
+
+/* =========================================================================
+   HISTORIQUE (undo / redo)
+   ========================================================================= */
+function pushHistory(){
+  state.history.push(state.layers.slice());
+  state.redoStack = [];
+  if(state.history.length>40) state.history.shift();
+}
+document.getElementById("undoBtn").addEventListener("click", ()=>{
+  if(state.history.length===0){ toast("Rien à annuler."); return; }
+  state.redoStack.push(state.layers.slice());
+  state.layers = state.history.pop();
+  renderComposite();
+  renderLayersList();
+  saveProject();
+});
+document.getElementById("redoBtn").addEventListener("click", ()=>{
+  if(state.redoStack.length===0){ toast("Rien à rétablir."); return; }
+  state.history.push(state.layers.slice());
+  state.layers = state.redoStack.pop();
+  renderComposite();
+  renderLayersList();
+  saveProject();
+});
+
+/* =========================================================================
+   ONGLET CALQUES
+   ========================================================================= */
+function renderLayersList(){
+  const list = document.getElementById("layersList");
+  if(state.layers.length===0){
+    list.innerHTML = '<div class="layers-empty">Aucun calque appliqué pour l\'instant.</div>';
+    return;
+  }
+  list.innerHTML="";
+  state.layers.forEach((layer)=>{
+    const row = document.createElement("div");
+    row.className="layer-item";
+    row.innerHTML = `
+      <div class="layer-swatch" style="background:${layer.hex}"></div>
+      <div class="layer-info">
+        <div class="layer-name">${layer.name}</div>
+        <div class="layer-meta">${layer.range} · intensité ${layer.intensity}%${layer.keepSat?" · saturation d'origine":""}</div>
+      </div>
+      <div class="layer-actions">
+        <button data-act="edit" title="Modifier la teinte, l'intensité ou la saturation">✎</button>
+        <button data-act="del" title="Supprimer">🗑</button>
+      </div>
+    `;
+    row.querySelector('[data-act="edit"]').addEventListener("click", ()=> editLayer(layer.id));
+    row.querySelector('[data-act="del"]').addEventListener("click", ()=> deleteLayer(layer.id));
+    list.appendChild(row);
+  });
+}
+
+function editLayer(id){
+  const layer = state.layers.find(l=>l.id===id);
+  if(!layer) return;
+  if(state.currentSelection){
+    state.currentSelection = null; // évite toute confusion avec une sélection en cours
+  }
+  state.editingLayerId = id;
+  state.chosenColor = {name:layer.name, range:layer.range, hex:layer.hex};
+  state.intensity = layer.intensity;
+  state.keepSat = layer.keepSat;
+
+  document.getElementById("intensitySlider").value = layer.intensity;
+  document.getElementById("intensityVal").textContent = layer.intensity+"%";
+  document.getElementById("keepSatCheckbox").checked = layer.keepSat;
+  document.getElementById("currentColorName").textContent = layer.name+" · "+layer.range;
+
+  document.getElementById("selectionTools").style.display = "none";
+  document.getElementById("applyLayerRow").style.display = "none";
+  document.getElementById("undoRedoRow").style.display = "none";
+  const banner = document.getElementById("editBanner");
+  banner.classList.add("show");
+  document.getElementById("editBannerName").textContent = layer.name+" · "+layer.range;
+  document.getElementById("editBannerSwatch").style.background = layer.hex;
+
+  renderPalette();
+  switchTab("palette");
+  renderComposite();
+  toast("Choisis une nouvelle couleur dans la palette, ou ajuste l'intensité.");
+}
+
+function exitLayerEditMode(){
+  state.editingLayerId = null;
+  document.getElementById("selectionTools").style.display = "";
+  document.getElementById("applyLayerRow").style.display = "";
+  document.getElementById("undoRedoRow").style.display = "";
+  document.getElementById("editBanner").classList.remove("show");
+}
+
+document.getElementById("editSaveBtn").addEventListener("click", ()=>{
+  const layer = state.layers.find(l=>l.id===state.editingLayerId);
+  if(!layer){ exitLayerEditMode(); return; }
+  if(!state.chosenColor){ toast("Choisis une couleur dans la palette."); return; }
+  pushHistory();
+  layer.name = state.chosenColor.name;
+  layer.range = state.chosenColor.range;
+  layer.hex = state.chosenColor.hex;
+  layer.intensity = state.intensity;
+  layer.keepSat = state.keepSat;
+  exitLayerEditMode();
+  renderComposite();
+  renderLayersList();
+  saveProject();
+  toast("Calque modifié : "+layer.name);
+});
+
+document.getElementById("editCancelBtn").addEventListener("click", ()=>{
+  exitLayerEditMode();
+  renderComposite();
+  switchTab("layers");
+});
+
+async function deleteLayer(id){
+  const ok = await confirmDialog("Supprimer ce calque de couleur ?");
+  if(!ok) return;
+  if(state.editingLayerId===id) exitLayerEditMode();
+  pushHistory();
+  state.layers = state.layers.filter(l=>l.id!==id);
+  renderComposite();
+  renderLayersList();
+  saveProject();
+}
+
+/* =========================================================================
+   AVANT / APRÈS
+   ========================================================================= */
+document.getElementById("baToggle").addEventListener("click", (e)=>{
+  state.showingBefore = !state.showingBefore;
+  e.target.classList.toggle("active", state.showingBefore);
+  e.target.textContent = state.showingBefore ? "Voir le résultat" : "Avant / après";
+  drawFrame();
+});
+
+/* =========================================================================
+   ONGLETS (tabs)
+   ========================================================================= */
+function switchTab(name){
+  document.querySelectorAll(".tab").forEach(t=>t.classList.toggle("active", t.dataset.tab===name));
+  document.querySelectorAll(".tab-panel").forEach(p=>p.classList.toggle("active", p.dataset.panel===name));
+}
+document.querySelectorAll(".tab").forEach(t=>{
+  t.addEventListener("click", ()=> switchTab(t.dataset.tab));
+});
+
+/* =========================================================================
+   EXPORT
+   ========================================================================= */
+document.getElementById("exportBtn").addEventListener("click", ()=>{
+  if(!state.baseImageData){ toast("Aucune image à exporter."); return; }
+  invalidateComposite();
+  const out = document.createElement("canvas");
+  out.width = state.workW; out.height = state.workH;
+  out.getContext("2d").putImageData(compositeCache, 0, 0);
+
+  out.toBlob((blob)=>{
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const d = new Date();
+    const dateStr = d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+    a.href = url;
+    a.download = "figurine-recoloree-"+dateStr+".png";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(()=>URL.revokeObjectURL(url), 4000);
+    toast("Image téléchargée.");
+  }, "image/png");
+});
+
+/* =========================================================================
+   PERSISTANCE (localStorage)
+   -------------------------------------------------------------------------
+   L'image de base et chaque masque de calque sont encodés en PNG (les
+   masques, étant des bitmaps noir/blanc, se compressent très bien) puis
+   stockés en base64 dans localStorage. On reste ainsi sous la limite de
+   ~5-10 Mo du navigateur pour un projet de taille raisonnable.
+   ========================================================================= */
+function imageDataToPngDataURL(imgData, w, h){
+  const c = document.createElement("canvas");
+  c.width=w; c.height=h;
+  c.getContext("2d").putImageData(imgData,0,0);
+  return c.toDataURL("image/png");
+}
+
+function maskToPngDataURL(mask, w, h){
+  const c = document.createElement("canvas");
+  c.width=w; c.height=h;
+  const ctx = c.getContext("2d");
+  const id = ctx.createImageData(w,h);
+  for(let p=0;p<mask.length;p++){
+    const v = mask[p]?255:0;
+    const i=p*4;
+    id.data[i]=v; id.data[i+1]=v; id.data[i+2]=v; id.data[i+3]=255;
+  }
+  ctx.putImageData(id,0,0);
+  return c.toDataURL("image/png");
+}
+
+function pngDataURLToMask(dataUrl, w, h){
+  return new Promise((resolve)=>{
+    const img = new Image();
+    img.onload = ()=>{
+      const c = document.createElement("canvas");
+      c.width=w; c.height=h;
+      const ctx = c.getContext("2d");
+      ctx.drawImage(img,0,0,w,h);
+      const id = ctx.getImageData(0,0,w,h);
+      const mask = new Uint8Array(w*h);
+      for(let p=0;p<mask.length;p++){
+        mask[p] = id.data[p*4] > 127 ? 1 : 0;
+      }
+      resolve(mask);
+    };
+    img.src = dataUrl;
+  });
+}
+
+let saveDebounce=null;
+function saveProject(){
+  clearTimeout(saveDebounce);
+  saveDebounce = setTimeout(doSaveProject, 300);
+}
+
+function doSaveProject(){
+  if(!state.baseImageData) return;
+  try{
+    const payload = {
+      v:1,
+      w: state.workW, h: state.workH,
+      baseImage: imageDataToPngDataURL(state.baseImageData, state.workW, state.workH),
+      layers: state.layers.map(l=>({
+        id:l.id, name:l.name, range:l.range, hex:l.hex,
+        intensity:l.intensity, keepSat:l.keepSat,
+        mask: maskToPngDataURL(l.maskArr, state.workW, state.workH),
+      })),
+      nextLayerId: state.nextLayerId,
+      savedAt: Date.now(),
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+  }catch(err){
+    console.warn("Sauvegarde impossible (quota localStorage dépassé ?)", err);
+    toast("Attention : la sauvegarde automatique a échoué (image trop lourde).");
+  }
+}
+
+function hasSavedProject(){
+  return !!localStorage.getItem(STORAGE_KEY);
+}
+
+async function loadSavedProject(){
+  const raw = localStorage.getItem(STORAGE_KEY);
+  if(!raw) return false;
+  let payload;
+  try{ payload = JSON.parse(raw); } catch(e){ return false; }
+
+  const img = new Image();
+  await new Promise((resolve,reject)=>{
+    img.onload=resolve; img.onerror=reject; img.src=payload.baseImage;
+  });
+
+  state.workW = payload.w; state.workH = payload.h;
+  const c = document.createElement("canvas");
+  c.width=payload.w; c.height=payload.h;
+  const cctx = c.getContext("2d");
+  cctx.drawImage(img,0,0);
+  state.baseImageData = cctx.getImageData(0,0,payload.w,payload.h);
+
+  state.layers = [];
+  for(const l of payload.layers){
+    const mask = await pngDataURLToMask(l.mask, payload.w, payload.h);
+    state.layers.push({
+      id:l.id, name:l.name, range:l.range, hex:l.hex,
+      intensity:l.intensity, keepSat:l.keepSat, maskArr:mask,
+    });
+  }
+  state.nextLayerId = payload.nextLayerId || (state.layers.length+1);
+  state.currentSelection = null;
+  state.history=[]; state.redoStack=[];
+  exitLayerEditMode();
+
+  fitZoomToScreen();
+  showEditor();
+  renderComposite();
+  renderLayersList();
+  return true;
+}
+
+function clearSavedProject(){
+  localStorage.removeItem(STORAGE_KEY);
+}
+
+/* =========================================================================
+   NAVIGATION ÉCRANS
+   ========================================================================= */
+function showEditor(){
+  document.getElementById("uploadScreen").style.display="none";
+  document.getElementById("editorScreen").style.display="flex";
+  document.getElementById("newProjectBtn").style.display="inline-block";
+}
+function showUpload(){
+  document.getElementById("uploadScreen").style.display="flex";
+  document.getElementById("editorScreen").style.display="none";
+  document.getElementById("newProjectBtn").style.display="none";
+}
+
+document.getElementById("fileInput").addEventListener("change", (e)=>{
+  if(e.target.files[0]) loadImageFile(e.target.files[0]);
+  e.target.value="";
+});
+document.getElementById("captureInput").addEventListener("change", (e)=>{
+  if(e.target.files[0]) loadImageFile(e.target.files[0]);
+  e.target.value="";
+});
+
+document.getElementById("newProjectBtn").addEventListener("click", async ()=>{
+  const ok = await confirmDialog("Démarrer un nouveau projet ? Le projet en cours sera définitivement perdu s'il n'est pas terminé.");
+  if(!ok) return;
+  clearSavedProject();
+  state.baseImageData=null;
+  state.layers=[];
+  state.currentSelection=null;
+  showUpload();
+});
+
+document.getElementById("resumeBtn").addEventListener("click", async ()=>{
+  document.getElementById("resumeBanner").style.display="none";
+  const ok = await loadSavedProject();
+  if(!ok) toast("Impossible de charger le projet sauvegardé.");
+});
+document.getElementById("discardResumeBtn").addEventListener("click", async ()=>{
+  const ok = await confirmDialog("Supprimer définitivement le projet sauvegardé ?");
+  if(!ok) return;
+  clearSavedProject();
+  document.getElementById("resumeBanner").style.display="none";
+});
+
+/* =========================================================================
+   INIT
+   ========================================================================= */
+if(hasSavedProject()){
+  document.getElementById("resumeBanner").style.display="block";
+}
+
+})();
+</script>
+</body>
+</html>
