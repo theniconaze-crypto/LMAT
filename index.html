@@ -32,7 +32,7 @@
   --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --font-display: "Charter", "Georgia", serif;
 }
-*{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+*{box-sizing:border-box; -webkit-tap-highlight-color:transparent; -webkit-touch-callout:none;}
 html,body{
   margin:0; padding:0; background:var(--ink); color:var(--paper);
   font-family:var(--font-ui);
@@ -119,10 +119,16 @@ main{ flex:1; display:flex; flex-direction:column; min-height:0; }
     var(--ink);
   overflow:hidden;
   touch-action:none;
+  -webkit-touch-callout:none;
+  -webkit-user-select:none;
+  user-select:none;
 }
 #viewCanvas{
   position:absolute; top:0; left:0;
   touch-action:none;
+  -webkit-touch-callout:none;
+  -webkit-user-select:none;
+  user-select:none;
 }
 .zoom-controls{
   position:absolute; right:10px; bottom:10px; display:flex; flex-direction:column; gap:6px;
@@ -916,6 +922,11 @@ function setupNewProject(img){
 /* =========================================================================
    FLOOD FILL (baguette magique)
    ========================================================================= */
+/* Pile réutilisée entre appels (typed array préallouée) : évite les
+   redimensionnements répétés d'un tableau JS classique, nettement plus
+   coûteux sur les moteurs JS mobiles (notamment Safari/iOS) quand la zone
+   sélectionnée couvre une grande partie de l'image. */
+let _floodStack = null;
 function floodFillSelect(startX, startY, tolerance){
   const {workW:w, workH:h, baseImageData} = state;
   const data = baseImageData.data;
@@ -925,11 +936,16 @@ function floodFillSelect(startX, startY, tolerance){
 
   const mask = new Uint8Array(w*h);
   const visited = new Uint8Array(w*h);
-  const stack = [startY*w+startX];
+  if(!_floodStack || _floodStack.length < w*h){
+    _floodStack = new Int32Array(w*h);
+  }
+  const stack = _floodStack;
+  let sp = 0;
+  stack[sp++] = startY*w+startX;
   visited[startY*w+startX] = 1;
 
-  while(stack.length){
-    const p = stack.pop();
+  while(sp>0){
+    const p = stack[--sp];
     const x = p % w, y = (p - x) / w;
     const i = p*4;
     const dr = data[i]-r0, dg = data[i+1]-g0, db = data[i+2]-b0;
@@ -937,10 +953,10 @@ function floodFillSelect(startX, startY, tolerance){
     if(dist > thresh) continue;
     mask[p] = 1;
 
-    if(x>0 && !visited[p-1]){ visited[p-1]=1; stack.push(p-1); }
-    if(x<w-1 && !visited[p+1]){ visited[p+1]=1; stack.push(p+1); }
-    if(y>0 && !visited[p-w]){ visited[p-w]=1; stack.push(p-w); }
-    if(y<h-1 && !visited[p+w]){ visited[p+w]=1; stack.push(p+w); }
+    if(x>0 && !visited[p-1]){ visited[p-1]=1; stack[sp++]=p-1; }
+    if(x<w-1 && !visited[p+1]){ visited[p+1]=1; stack[sp++]=p+1; }
+    if(y>0 && !visited[p-w]){ visited[p-w]=1; stack[sp++]=p-w; }
+    if(y<h-1 && !visited[p+w]){ visited[p+w]=1; stack[sp++]=p+w; }
   }
   return mask;
 }
@@ -1124,7 +1140,14 @@ function isOverlayControl(target){
 
 canvasWrap.addEventListener("pointerdown", (e)=>{
   if(isOverlayControl(e.target)) return; // laisse les boutons overlay gérer leur propre clic
-  canvasWrap.setPointerCapture(e.pointerId);
+  // Sur iOS Safari, setPointerCapture peut lever une exception dans certains
+  // cas (pointer déjà relâché, WebView en mode standalone, etc.). Si l'appel
+  // plante sans try/catch, tout le reste du handler (y compris la mise à
+  // jour de `pointers`/`dragStart`) est court-circuité et plus aucun tap ne
+  // fonctionne ensuite : c'est la cause la plus probable des sélections qui
+  // ne se déclenchent pas sur iPhone. On isole donc cet appel.
+  try{ canvasWrap.setPointerCapture(e.pointerId); }catch(err){ /* ignore */ }
+  e.preventDefault();
   pointers.set(e.pointerId, {x:e.clientX, y:e.clientY});
   if(pointers.size===1){
     dragStart = {x:e.clientX, y:e.clientY, panX:state.panX, panY:state.panY, moved:false, t:Date.now()};
@@ -1134,10 +1157,11 @@ canvasWrap.addEventListener("pointerdown", (e)=>{
     lastPinchDist = Math.hypot(pts[0].x-pts[1].x, pts[0].y-pts[1].y);
     lastPinchCenter = {x:(pts[0].x+pts[1].x)/2, y:(pts[0].y+pts[1].y)/2};
   }
-});
+}, {passive:false});
 
 canvasWrap.addEventListener("pointermove", (e)=>{
   if(!pointers.has(e.pointerId)) return;
+  e.preventDefault();
   pointers.set(e.pointerId, {x:e.clientX, y:e.clientY});
 
   if(pointers.size===1 && dragStart){
@@ -1170,11 +1194,13 @@ canvasWrap.addEventListener("pointermove", (e)=>{
     lastPinchDist = dist;
     lastPinchCenter = {x:cx, y:cy};
   }
-});
+}, {passive:false});
 
 function endPointer(e){
+  if(isOverlayControl(e.target)) return; // ne pas interpréter le relâchement d'un bouton overlay comme un tap
   const wasSingleTap = state.viewMode==="select" && pointers.size===1 && dragStart
     && !dragStart.moved && (Date.now()-dragStart.t)<TAP_MAX_DURATION;
+  try{ canvasWrap.releasePointerCapture(e.pointerId); }catch(err){ /* ignore */ }
   pointers.delete(e.pointerId);
   if(pointers.size<2){ lastPinchDist=null; lastPinchCenter=null; }
   if(wasSingleTap){
@@ -1182,8 +1208,8 @@ function endPointer(e){
   }
   if(pointers.size===0) dragStart=null;
 }
-canvasWrap.addEventListener("pointerup", endPointer);
-canvasWrap.addEventListener("pointercancel", endPointer);
+canvasWrap.addEventListener("pointerup", endPointer, {passive:false});
+canvasWrap.addEventListener("pointercancel", endPointer, {passive:false});
 
 // Molette de souris (desktop) : zoom centré sur le curseur.
 canvasWrap.addEventListener("wheel", (e)=>{
@@ -1251,6 +1277,14 @@ document.getElementById("viewModeToggle").addEventListener("click", ()=>{
 });
 
 window.addEventListener("resize", ()=>{ if(state.baseImageData) drawFrame(); });
+window.addEventListener("orientationchange", ()=>{ if(state.baseImageData) setTimeout(drawFrame, 60); });
+// Sur iOS, la barre d'adresse Safari qui apparaît/disparaît change la taille
+// de la fenêtre visuelle sans toujours déclencher "resize" au bon moment ;
+// on écoute aussi visualViewport pour garder le canvas et les coordonnées
+// de tap alignés avec ce qui est réellement affiché à l'écran.
+if(window.visualViewport){
+  window.visualViewport.addEventListener("resize", ()=>{ if(state.baseImageData) drawFrame(); });
+}
 
 function handleCanvasTap(clientX, clientY){
   if(!state.baseImageData || state.showingBefore) return;
