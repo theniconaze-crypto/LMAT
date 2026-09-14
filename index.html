@@ -404,7 +404,15 @@ main{ flex:1; display:flex; flex-direction:column; min-height:0; }
         <div id="autoDetectSection">
           <div class="auto-detect-box">
             <div class="auto-detect-title">Détection automatique</div>
-            <div class="auto-detect-desc">Analyse la photo et crée un calque pour chacune des 8 couleurs dominantes de la figurine — modifie ensuite chaque calque avec le crayon ✎ dans l'onglet Calques pour choisir sa nouvelle teinte.</div>
+            <div class="auto-detect-desc">Analyse la photo et crée un calque pour chaque teinte réellement distincte de la figurine (seules les nuances d'ombre/lumière d'une même peinture sont fusionnées ensemble — aucune couleur différente n'est supprimée). Modifie ensuite chaque calque avec le crayon ✎ dans l'onglet Calques pour choisir sa nouvelle teinte.</div>
+            <div class="field-row" style="margin-bottom:10px;">
+              <label for="detectPrecision" style="font-size:0.76rem; color:var(--paper-dim); display:block; margin-bottom:4px;">Précision de détection</label>
+              <select id="detectPrecision" style="width:100%; background:var(--panel-2); color:var(--paper); border:1px solid var(--line); border-radius:8px; padding:9px;">
+                <option value="16">Standard (jusqu'à 16 teintes)</option>
+                <option value="24" selected>Précise (jusqu'à 24 teintes)</option>
+                <option value="40">Très précise (jusqu'à 40 teintes)</option>
+              </select>
+            </div>
             <button class="btn-secondary" id="detectColorsBtn">🎨 Détecter les couleurs dominantes</button>
             <div id="detectedGroupsToolbar" class="detected-groups-toolbar" style="display:none;"></div>
             <div id="detectedGroupsList" class="detected-groups-list" style="display:none;"></div>
@@ -1016,13 +1024,18 @@ function applySelectionOp(newMask){
    calque, même si elle apparaît dans plusieurs zones séparées (ex : les
    deux bras d'une armure bleue).
 
-   Le k-means est volontairement lancé avec plus de groupes que nécessaire
-   (les variations d'ombre/lumière sur une même teinte créent souvent
-   plusieurs petits clusters très proches), puis une passe de FUSION
-   regroupe les clusters dont la couleur est perceptuellement proche
-   (ex : toutes les nuances de bleu de l'armure, toutes les nuances de
-   dorure) en un seul groupe final, jusqu'à obtenir au plus
-   DETECT_COLOR_COUNT groupes.
+   Le k-means est volontairement lancé avec beaucoup plus de groupes que
+   nécessaire (les variations d'ombre/lumière sur une même teinte créent
+   souvent plusieurs petits clusters très proches), puis une passe de
+   FUSION regroupe les clusters dont la couleur est perceptuellement
+   proche (ex : toutes les nuances de bleu de l'armure, toutes les
+   nuances de dorure) en un seul groupe final.
+
+   Important : cette fusion est basée UNIQUEMENT sur la distance
+   perceptuelle (MERGE_THRESHOLD) — jamais sur un nombre de groupes à
+   atteindre. Aucune teinte réellement distincte n'est donc supprimée ;
+   MAX_DETECT_GROUPS n'agit qu'en plafond de sécurité pour les photos
+   très bruitées (voir la seconde passe de fusion dans la fonction).
    ========================================================================= */
 function rgbToHexStr(r,g,b){
   return "#"+[r,g,b].map(v=>Math.max(0,Math.min(255,Math.round(v))).toString(16).padStart(2,"0")).join("");
@@ -1077,7 +1090,7 @@ function computeDominantColors(targetCount){
   const data = state.baseImageData.data;
   const total = w*h;
 
-  const targetSamples = 12000;
+  const targetSamples = 20000;
   const stride = Math.max(1, Math.floor(total/targetSamples));
   const samples = [];
   for(let p=0; p<total; p+=stride){
@@ -1088,9 +1101,11 @@ function computeDominantColors(targetCount){
   const nSamples = samples.length/3;
   if(nSamples < 2) return [];
 
-  // On part avec plus de groupes que la cible affichée : la fusion se
-  // charge ensuite de regrouper les teintes réellement proches.
-  const kInit = Math.min(Math.max(targetCount*2, 12), nSamples, 24);
+  // On part avec largement plus de groupes que le plafond affiché : la
+  // fusion (basée sur la distance perceptuelle, pas sur un nombre cible)
+  // se charge ensuite de ne regrouper que les teintes réellement proches,
+  // sans jamais supprimer une couleur distincte pour "faire de la place".
+  const kInit = Math.min(Math.max(targetCount*2, 24), nSamples, 56);
   const centroids = kmeansPlusPlusInit(samples, nSamples, kInit);
   const assign = new Int32Array(nSamples);
 
@@ -1149,10 +1164,15 @@ function computeDominantColors(targetCount){
     });
   }
 
-  // Fusion itérative : tant qu'il reste trop de groupes OU que les deux
-  // groupes les plus proches sont perceptuellement "la même teinte", on
-  // les fusionne (masques combinés, centroïde recalculé au prorata du
-  // nombre de pixels de chacun).
+  // Fusion itérative : on ne fusionne JAMAIS deux groupes juste pour
+  // atteindre un nombre cible — seules les paires perceptuellement
+  // identiques (distance < MERGE_THRESHOLD, typiquement une même peinture
+  // vue à l'ombre et à la lumière) sont regroupées. Le nombre final de
+  // teintes détectées dépend donc uniquement de l'image, jamais d'une
+  // limite arbitraire : aucune couleur distincte n'est supprimée.
+  //
+  // `targetCount` n'intervient qu'en garde-fou (phase 2 ci-dessous) pour
+  // éviter qu'une photo très bruitée ne génère une liste ingérable.
   while(groups.length>1){
     let bestI=-1, bestJ=-1, bestD=Infinity;
     for(let i=0;i<groups.length;i++){
@@ -1161,7 +1181,7 @@ function computeDominantColors(targetCount){
         if(d<bestD){ bestD=d; bestI=i; bestJ=j; }
       }
     }
-    if(groups.length<=targetCount && bestD>=MERGE_THRESHOLD) break;
+    if(bestD>=MERGE_THRESHOLD) break; // plus aucune paire "même teinte" : on s'arrête
     const a = groups[bestI], b = groups[bestJ];
     const totalCount = a.count+b.count;
     const merged = {
@@ -1170,6 +1190,32 @@ function computeDominantColors(targetCount){
       b:(a.b*a.count+b.b*b.count)/totalCount,
       count: totalCount,
       mask: a.mask, // réutilise le tableau de a, fusionné ci-dessous
+    };
+    for(let p=0;p<merged.mask.length;p++){ if(b.mask[p]) merged.mask[p]=1; }
+    groups = groups.filter((_,idx)=> idx!==bestI && idx!==bestJ);
+    groups.push(merged);
+  }
+
+  // Garde-fou : si, malgré la fusion perceptuelle, une photo bruitée laisse
+  // encore plus de `targetCount` groupes, on fusionne les paires restantes
+  // les plus proches jusqu'à ce plafond — uniquement pour garder la liste
+  // exploitable, jamais en dessous de ce plafond réglable par l'utilisateur.
+  while(groups.length>targetCount){
+    let bestI=-1, bestJ=-1, bestD=Infinity;
+    for(let i=0;i<groups.length;i++){
+      for(let j=i+1;j<groups.length;j++){
+        const d = colorDistance(groups[i].r,groups[i].g,groups[i].b, groups[j].r,groups[j].g,groups[j].b);
+        if(d<bestD){ bestD=d; bestI=i; bestJ=j; }
+      }
+    }
+    const a = groups[bestI], b = groups[bestJ];
+    const totalCount = a.count+b.count;
+    const merged = {
+      r:(a.r*a.count+b.r*b.count)/totalCount,
+      g:(a.g*a.count+b.g*b.count)/totalCount,
+      b:(a.b*a.count+b.b*b.count)/totalCount,
+      count: totalCount,
+      mask: a.mask,
     };
     for(let p=0;p<merged.mask.length;p++){ if(b.mask[p]) merged.mask[p]=1; }
     groups = groups.filter((_,idx)=> idx!==bestI && idx!==bestJ);
@@ -1185,7 +1231,16 @@ function computeDominantColors(targetCount){
   return results;
 }
 
-const DETECT_COLOR_COUNT = 8;
+// Plafond de sécurité (pas une cible) : la fonction computeDominantColors
+// ne fusionne jamais deux teintes distinctes pour l'atteindre, sauf en cas
+// de photo très bruitée (voir la 2e passe de fusion). Réglable via le menu
+// "Précision de détection" de l'interface.
+const DEFAULT_MAX_DETECT_GROUPS = 24;
+function getMaxDetectGroups(){
+  const sel = document.getElementById("detectPrecision");
+  const v = sel ? parseInt(sel.value, 10) : NaN;
+  return Number.isFinite(v) && v>0 ? v : DEFAULT_MAX_DETECT_GROUPS;
+}
 
 /* state.detectedGroups garde la trace des calques créés par la dernière
    détection ({layerId, originalHex, coverage}). Cette liste vit dans
@@ -1342,7 +1397,7 @@ document.getElementById("detectColorsBtn").addEventListener("click", async ()=>{
   // le thread principal (surtout notable sur mobile).
   setTimeout(()=>{
     try{
-      const results = computeDominantColors(DETECT_COLOR_COUNT);
+      const results = computeDominantColors(getMaxDetectGroups());
       if(results.length===0){
         toast("Impossible de détecter des couleurs distinctes sur cette image.");
         return;
