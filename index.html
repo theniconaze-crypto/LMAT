@@ -182,6 +182,26 @@ main{ flex:1; display:flex; flex-direction:column; min-height:0; }
 .tab-panel{ display:none; padding:14px 16px 18px; }
 .tab-panel.active{ display:block; }
 
+.auto-detect-box{
+  background:var(--panel-2); border:1px solid var(--line); border-radius:var(--radius);
+  padding:12px; margin-bottom:16px;
+}
+.auto-detect-title{ font-weight:600; color:var(--paper); font-size:0.86rem; margin-bottom:4px; }
+.auto-detect-desc{ color:var(--paper-dim); font-size:0.76rem; line-height:1.4; margin-bottom:10px; }
+.auto-detect-box .btn-secondary{ width:100%; }
+.auto-detect-box .btn-secondary:disabled{ opacity:0.5; }
+.detected-groups-list{ margin-top:10px; }
+.detected-group-item{ padding:8px 0; cursor:default; }
+.detected-group-item .layer-actions button{
+  background:var(--brass); border-color:var(--brass); color:#1a1408; font-weight:600;
+}
+.detected-groups-toolbar{ display:flex; gap:8px; margin-top:10px; }
+.detected-groups-toolbar button{ flex:1; border-radius:8px; padding:9px; font-size:0.78rem; }
+.detected-group-item.selectable{ cursor:pointer; }
+.detected-group-item.selected-for-merge{
+  background:rgba(192,138,62,0.16); border-radius:8px; margin:0 -8px; padding:8px;
+}
+.group-select-checkbox{ width:18px; height:18px; flex-shrink:0; accent-color:var(--brass); pointer-events:none; }
 .field-row{ margin-bottom:14px; }
 .field-row label{
   display:flex; justify-content:space-between; font-size:0.78rem; color:var(--paper-dim);
@@ -381,6 +401,16 @@ main{ flex:1; display:flex; flex-direction:column; min-height:0; }
 
       <!-- SELECT TAB -->
       <div class="tab-panel active" data-panel="select">
+        <div id="autoDetectSection">
+          <div class="auto-detect-box">
+            <div class="auto-detect-title">Détection automatique</div>
+            <div class="auto-detect-desc">Analyse la photo et crée un calque pour chacune des 8 couleurs dominantes de la figurine — modifie ensuite chaque calque avec le crayon ✎ dans l'onglet Calques pour choisir sa nouvelle teinte.</div>
+            <button class="btn-secondary" id="detectColorsBtn">🎨 Détecter les couleurs dominantes</button>
+            <div id="detectedGroupsToolbar" class="detected-groups-toolbar" style="display:none;"></div>
+            <div id="detectedGroupsList" class="detected-groups-list" style="display:none;"></div>
+          </div>
+          <div style="height:1px; background:var(--line); margin:16px 0;"></div>
+        </div>
         <div id="selectionTools">
           <div class="seg">
             <button class="active" id="modeAddBtn">+ Ajouter zone</button>
@@ -792,6 +822,7 @@ const state = {
   nextLayerId: 1,
   viewMode: "select", // "select" (tap = sélection baguette magique) | "pan" (glisser = déplacer la vue)
   editingLayerId: null, // id du calque en cours de modification de teinte, ou null
+  detectedGroups: null, // groupes de la dernière détection auto : [{layerId, originalHex, coverage}], ou null
 };
 
 /* =========================================================================
@@ -910,12 +941,14 @@ function setupNewProject(img){
   state.history = [];
   state.redoStack = [];
   state.nextLayerId = 1;
+  state.detectedGroups = null;
   exitLayerEditMode();
 
   fitZoomToScreen();
   showEditor();
   renderComposite();
   renderLayersList();
+  renderDetectedGroups();
   saveProject();
 }
 
@@ -972,6 +1005,381 @@ function applySelectionOp(newMask){
     for(let i=0;i<sel.length;i++){ if(newMask[i]) sel[i]=0; }
   }
 }
+
+/* =========================================================================
+   DÉTECTION AUTOMATIQUE DES COULEURS DOMINANTES (k-means + fusion)
+   -------------------------------------------------------------------------
+   Contrairement à la baguette magique (floodFillSelect), qui ne sélectionne
+   qu'une zone connectée, la détection automatique regroupe TOUS les pixels
+   de l'image proches d'une même couleur, où qu'ils soient — c'est ce qui
+   permet de remplacer une teinte "partout sur la figurine" en un seul
+   calque, même si elle apparaît dans plusieurs zones séparées (ex : les
+   deux bras d'une armure bleue).
+
+   Le k-means est volontairement lancé avec plus de groupes que nécessaire
+   (les variations d'ombre/lumière sur une même teinte créent souvent
+   plusieurs petits clusters très proches), puis une passe de FUSION
+   regroupe les clusters dont la couleur est perceptuellement proche
+   (ex : toutes les nuances de bleu de l'armure, toutes les nuances de
+   dorure) en un seul groupe final, jusqu'à obtenir au plus
+   DETECT_COLOR_COUNT groupes.
+   ========================================================================= */
+function rgbToHexStr(r,g,b){
+  return "#"+[r,g,b].map(v=>Math.max(0,Math.min(255,Math.round(v))).toString(16).padStart(2,"0")).join("");
+}
+
+// Distance perceptuelle approximative entre deux couleurs RGB ("redmean"),
+// plus fidèle qu'une distance euclidienne simple pour décider si deux
+// teintes doivent être vues comme "la même couleur" par un œil humain.
+function colorDistance(r1,g1,b1,r2,g2,b2){
+  const rmean = (r1+r2)/2;
+  const dr=r1-r2, dg=g1-g2, db=b1-b2;
+  return Math.sqrt((2+rmean/256)*dr*dr + 4*dg*dg + (2+(255-rmean)/256)*db*db);
+}
+
+// En dessous de ce seuil (échelle ~0 à 760), deux clusters sont considérés
+// comme la même teinte de peinture (juste éclairée différemment) et sont
+// fusionnés en un seul groupe.
+const MERGE_THRESHOLD = 46;
+
+// Initialisation k-means++ : choisit des centroïdes de départ bien répartis
+// plutôt que purement aléatoires, pour un résultat plus stable.
+function kmeansPlusPlusInit(samples, n, k){
+  const centroids = new Float64Array(k*3);
+  let idx = Math.floor(Math.random()*n);
+  centroids[0]=samples[idx*3]; centroids[1]=samples[idx*3+1]; centroids[2]=samples[idx*3+2];
+  const distSq = new Float64Array(n).fill(Infinity);
+  for(let c=1;c<k;c++){
+    let sum=0;
+    for(let s=0;s<n;s++){
+      const dr=samples[s*3]-centroids[(c-1)*3], dg=samples[s*3+1]-centroids[(c-1)*3+1], db=samples[s*3+2]-centroids[(c-1)*3+2];
+      const d=dr*dr+dg*dg+db*db;
+      if(d<distSq[s]) distSq[s]=d;
+      sum+=distSq[s];
+    }
+    if(sum<=0){ // toutes les distances sont nulles (image quasi uniforme) : pioche au hasard
+      const r = Math.floor(Math.random()*n);
+      centroids[c*3]=samples[r*3]; centroids[c*3+1]=samples[r*3+1]; centroids[c*3+2]=samples[r*3+2];
+      continue;
+    }
+    let r = Math.random()*sum, chosen=n-1;
+    for(let s=0;s<n;s++){ r-=distSq[s]; if(r<=0){ chosen=s; break; } }
+    centroids[c*3]=samples[chosen*3]; centroids[c*3+1]=samples[chosen*3+1]; centroids[c*3+2]=samples[chosen*3+2];
+  }
+  return centroids;
+}
+
+/* Calcule les couleurs dominantes de l'image de base et, pour chacune, un
+   masque (Uint8Array, taille workW*workH) de TOUS les pixels de l'image
+   qui lui sont associés, APRÈS fusion des teintes trop proches. */
+function computeDominantColors(targetCount){
+  const w = state.workW, h = state.workH;
+  const data = state.baseImageData.data;
+  const total = w*h;
+
+  const targetSamples = 12000;
+  const stride = Math.max(1, Math.floor(total/targetSamples));
+  const samples = [];
+  for(let p=0; p<total; p+=stride){
+    const i=p*4;
+    if(data[i+3] < 16) continue; // ignore les pixels quasi transparents
+    samples.push(data[i], data[i+1], data[i+2]);
+  }
+  const nSamples = samples.length/3;
+  if(nSamples < 2) return [];
+
+  // On part avec plus de groupes que la cible affichée : la fusion se
+  // charge ensuite de regrouper les teintes réellement proches.
+  const kInit = Math.min(Math.max(targetCount*2, 12), nSamples, 24);
+  const centroids = kmeansPlusPlusInit(samples, nSamples, kInit);
+  const assign = new Int32Array(nSamples);
+
+  for(let iter=0; iter<10; iter++){
+    for(let s=0; s<nSamples; s++){
+      const r=samples[s*3], g=samples[s*3+1], b=samples[s*3+2];
+      let best=0, bestD=Infinity;
+      for(let c=0;c<kInit;c++){
+        const dr=r-centroids[c*3], dg=g-centroids[c*3+1], db=b-centroids[c*3+2];
+        const d=dr*dr+dg*dg+db*db;
+        if(d<bestD){ bestD=d; best=c; }
+      }
+      assign[s]=best;
+    }
+    const sums = new Float64Array(kInit*3);
+    const counts = new Int32Array(kInit);
+    for(let s=0;s<nSamples;s++){
+      const c=assign[s];
+      sums[c*3]+=samples[s*3]; sums[c*3+1]+=samples[s*3+1]; sums[c*3+2]+=samples[s*3+2];
+      counts[c]++;
+    }
+    for(let c=0;c<kInit;c++){
+      if(counts[c]===0) continue; // cluster vide : on garde son ancien centroïde
+      centroids[c*3]=sums[c*3]/counts[c];
+      centroids[c*3+1]=sums[c*3+1]/counts[c];
+      centroids[c*3+2]=sums[c*3+2]/counts[c];
+    }
+  }
+
+  // Affectation finale sur l'image complète (masques exacts, non contigus)
+  const rawMasks = [];
+  for(let c=0;c<kInit;c++) rawMasks.push(new Uint8Array(total));
+  const rawCounts = new Int32Array(kInit);
+  let opaqueTotal = 0;
+  for(let p=0;p<total;p++){
+    const i=p*4;
+    if(data[i+3] < 16) continue;
+    opaqueTotal++;
+    const r=data[i], g=data[i+1], b=data[i+2];
+    let best=0, bestD=Infinity;
+    for(let c=0;c<kInit;c++){
+      const dr=r-centroids[c*3], dg=g-centroids[c*3+1], db=b-centroids[c*3+2];
+      const d=dr*dr+dg*dg+db*db;
+      if(d<bestD){ bestD=d; best=c; }
+    }
+    rawMasks[best][p]=1;
+    rawCounts[best]++;
+  }
+
+  let groups = [];
+  for(let c=0;c<kInit;c++){
+    if(rawCounts[c]===0) continue;
+    groups.push({
+      r:centroids[c*3], g:centroids[c*3+1], b:centroids[c*3+2],
+      count:rawCounts[c], mask:rawMasks[c],
+    });
+  }
+
+  // Fusion itérative : tant qu'il reste trop de groupes OU que les deux
+  // groupes les plus proches sont perceptuellement "la même teinte", on
+  // les fusionne (masques combinés, centroïde recalculé au prorata du
+  // nombre de pixels de chacun).
+  while(groups.length>1){
+    let bestI=-1, bestJ=-1, bestD=Infinity;
+    for(let i=0;i<groups.length;i++){
+      for(let j=i+1;j<groups.length;j++){
+        const d = colorDistance(groups[i].r,groups[i].g,groups[i].b, groups[j].r,groups[j].g,groups[j].b);
+        if(d<bestD){ bestD=d; bestI=i; bestJ=j; }
+      }
+    }
+    if(groups.length<=targetCount && bestD>=MERGE_THRESHOLD) break;
+    const a = groups[bestI], b = groups[bestJ];
+    const totalCount = a.count+b.count;
+    const merged = {
+      r:(a.r*a.count+b.r*b.count)/totalCount,
+      g:(a.g*a.count+b.g*b.count)/totalCount,
+      b:(a.b*a.count+b.b*b.count)/totalCount,
+      count: totalCount,
+      mask: a.mask, // réutilise le tableau de a, fusionné ci-dessous
+    };
+    for(let p=0;p<merged.mask.length;p++){ if(b.mask[p]) merged.mask[p]=1; }
+    groups = groups.filter((_,idx)=> idx!==bestI && idx!==bestJ);
+    groups.push(merged);
+  }
+
+  const results = groups.map(g=>({
+    hex: rgbToHexStr(g.r, g.g, g.b),
+    coverage: opaqueTotal>0 ? g.count/opaqueTotal : 0,
+    mask: g.mask,
+  }));
+  results.sort((a,b)=> b.coverage-a.coverage);
+  return results;
+}
+
+const DETECT_COLOR_COUNT = 8;
+
+/* state.detectedGroups garde la trace des calques créés par la dernière
+   détection ({layerId, originalHex, coverage}). Cette liste vit dans
+   `state`, donc elle survit à tous les changements d'onglet — seul un
+   nouveau clic sur "Détecter" (avec confirmation) la remplace.
+
+   groupSelectMode / selectedGroupLayerIds gèrent le mode "regrouper des
+   zones" : l'utilisateur coche plusieurs groupes détectés pour les fusionner
+   en un seul, traité ensuite comme une seule teinte à choisir. */
+let groupSelectMode = false;
+let selectedGroupLayerIds = new Set();
+
+function toggleGroupSelectMode(force){
+  groupSelectMode = force !== undefined ? force : !groupSelectMode;
+  if(!groupSelectMode) selectedGroupLayerIds.clear();
+  renderDetectedGroups();
+}
+
+function renderDetectedGroups(){
+  const box = document.getElementById("detectedGroupsList");
+  const toolbar = document.getElementById("detectedGroupsToolbar");
+  if(!state.detectedGroups || state.detectedGroups.length===0){
+    box.innerHTML = "";
+    box.style.display = "none";
+    toolbar.innerHTML = "";
+    toolbar.style.display = "none";
+    groupSelectMode = false;
+    selectedGroupLayerIds.clear();
+    return;
+  }
+  box.style.display = "";
+
+  // Barre d'outils : basculer le mode "regrouper des zones", ou confirmer/
+  // annuler une fusion en cours. Inutile s'il n'y a qu'un seul groupe.
+  if(state.detectedGroups.length<2){
+    toolbar.style.display = "none";
+    toolbar.innerHTML = "";
+    groupSelectMode = false;
+    selectedGroupLayerIds.clear();
+  } else {
+    toolbar.style.display = "flex";
+    if(groupSelectMode){
+      toolbar.innerHTML = `
+        <button class="btn-primary" id="confirmMergeBtn" ${selectedGroupLayerIds.size<2?"disabled":""}>Fusionner (${selectedGroupLayerIds.size})</button>
+        <button class="btn-secondary" id="cancelMergeBtn">Annuler</button>
+      `;
+      document.getElementById("confirmMergeBtn").addEventListener("click", mergeSelectedGroups);
+      document.getElementById("cancelMergeBtn").addEventListener("click", ()=> toggleGroupSelectMode(false));
+    } else {
+      toolbar.innerHTML = `<button class="btn-secondary" id="startMergeBtn">🔗 Regrouper des zones (même teinte)</button>`;
+      document.getElementById("startMergeBtn").addEventListener("click", ()=> toggleGroupSelectMode(true));
+    }
+  }
+
+  box.innerHTML = "";
+  state.detectedGroups.forEach(g=>{
+    const layer = state.layers.find(l=>l.id===g.layerId);
+    if(!layer) return;
+    const row = document.createElement("div");
+    const checked = selectedGroupLayerIds.has(layer.id);
+    row.className = "layer-item detected-group-item"+(groupSelectMode?" selectable":"")+(checked?" selected-for-merge":"");
+    const assigned = layer.range !== "Détecté";
+    row.innerHTML = `
+      ${groupSelectMode ? `<input type="checkbox" class="group-select-checkbox" ${checked?"checked":""}>` : ""}
+      <div class="layer-swatch" style="background:${layer.hex}"></div>
+      <div class="layer-info">
+        <div class="layer-name">${assigned ? layer.name : "Groupe détecté (~"+Math.round(g.coverage*100)+"% de l'image)"}</div>
+        <div class="layer-meta">${assigned ? "Teinte choisie · "+layer.range : "Pas encore de teinte choisie"}</div>
+      </div>
+      ${groupSelectMode ? "" : `<div class="layer-actions"><button data-act="assign" title="Choisir une teinte dans la palette">${assigned ? "✎" : "🎨"}</button></div>`}
+    `;
+    if(groupSelectMode){
+      row.addEventListener("click", ()=>{
+        if(selectedGroupLayerIds.has(layer.id)) selectedGroupLayerIds.delete(layer.id);
+        else selectedGroupLayerIds.add(layer.id);
+        renderDetectedGroups();
+      });
+    } else {
+      row.querySelector('[data-act="assign"]').addEventListener("click", ()=> editLayer(layer.id));
+    }
+    box.appendChild(row);
+  });
+}
+
+/* Fusionne les groupes détectés cochés en un seul calque (masques combinés
+   par OR, couleur de départ = moyenne pondérée par la couverture de
+   chacun). Le groupe fusionné redevient "à choisir" : toute teinte déjà
+   attribuée à l'un des groupes d'origine est réinitialisée, pour éviter
+   toute ambiguïté sur laquelle des teintes garder. */
+function mergeSelectedGroups(){
+  if(selectedGroupLayerIds.size<2) return;
+  const ids = [...selectedGroupLayerIds];
+  const layersToMerge = ids.map(id=>state.layers.find(l=>l.id===id)).filter(Boolean);
+  if(layersToMerge.length<2) return;
+
+  pushHistory();
+  const w = state.workW, h = state.workH;
+  const mergedMask = new Uint8Array(w*h);
+  let totalCoverage = 0;
+  let sumR=0, sumG=0, sumB=0, sumWeight=0;
+  layersToMerge.forEach(l=>{
+    for(let p=0;p<mergedMask.length;p++){ if(l.maskArr[p]) mergedMask[p]=1; }
+    const cov = l.coverage || 0.0001;
+    totalCoverage += (l.coverage||0);
+    const rgb = hexToRgb(l.hex);
+    sumR += rgb.r*cov; sumG += rgb.g*cov; sumB += rgb.b*cov; sumWeight += cov;
+  });
+  const avgHex = rgbToHexStr(sumR/sumWeight, sumG/sumWeight, sumB/sumWeight);
+
+  state.layers = state.layers.filter(l=>!ids.includes(l.id));
+  state.detectedGroups = state.detectedGroups.filter(g=>!ids.includes(g.layerId));
+
+  const newLayer = {
+    id: state.nextLayerId++,
+    name: "Groupe fusionné ("+avgHex.toUpperCase()+")",
+    range: "Détecté",
+    hex: avgHex,
+    intensity: 100,
+    keepSat: false,
+    maskArr: mergedMask,
+    coverage: totalCoverage,
+    fromDetection: true,
+  };
+  state.layers.push(newLayer);
+  state.detectedGroups.push({layerId:newLayer.id, originalHex:avgHex, coverage: totalCoverage});
+
+  groupSelectMode = false;
+  selectedGroupLayerIds.clear();
+
+  renderComposite();
+  renderLayersList();
+  renderDetectedGroups();
+  saveProject();
+  toast(layersToMerge.length+" zones fusionnées en un seul groupe — touche 🎨 pour lui choisir une teinte, elle s'appliquera à l'ensemble.");
+}
+
+document.getElementById("detectColorsBtn").addEventListener("click", async ()=>{
+  if(!state.baseImageData) return;
+  if(state.editingLayerId){
+    toast("Termine ou annule la modification du calque en cours avant de relancer la détection.");
+    return;
+  }
+  if(state.detectedGroups && state.detectedGroups.length>0){
+    const ok = await confirmDialog("Relancer la détection remplacera les "+state.detectedGroups.length+" groupes détectés précédemment (et les teintes déjà choisies pour eux). Continuer ?");
+    if(!ok) return;
+  }
+  const btn = document.getElementById("detectColorsBtn");
+  btn.disabled = true;
+  const originalLabel = btn.textContent;
+  btn.textContent = "Analyse en cours…";
+  toast("Analyse des couleurs dominantes…");
+  // setTimeout(...,10) laisse le temps au navigateur d'afficher le message
+  // "Analyse en cours…" avant de lancer le calcul, qui bloque un instant
+  // le thread principal (surtout notable sur mobile).
+  setTimeout(()=>{
+    try{
+      const results = computeDominantColors(DETECT_COLOR_COUNT);
+      if(results.length===0){
+        toast("Impossible de détecter des couleurs distinctes sur cette image.");
+        return;
+      }
+      pushHistory();
+      // Retire les calques de la détection précédente avant d'ajouter les nouveaux.
+      state.layers = state.layers.filter(l=>!l.fromDetection);
+      state.detectedGroups = [];
+      groupSelectMode = false;
+      selectedGroupLayerIds.clear();
+      results.forEach((r, idx)=>{
+        const layer = {
+          id: state.nextLayerId++,
+          name: "Zone détectée "+(idx+1)+" ("+r.hex.toUpperCase()+")",
+          range: "Détecté",
+          hex: r.hex,
+          intensity: 100,
+          keepSat: false,
+          maskArr: r.mask,
+          coverage: r.coverage,
+          fromDetection: true,
+        };
+        state.layers.push(layer);
+        state.detectedGroups.push({layerId: layer.id, originalHex: r.hex, coverage: r.coverage});
+      });
+      state.currentSelection = null;
+      renderComposite();
+      renderLayersList();
+      renderDetectedGroups();
+      saveProject();
+      toast(results.length+" groupes de couleurs détectés — touche 🎨 sur un groupe ci-dessous pour lui choisir une teinte dans la palette.");
+    } finally {
+      btn.disabled = false;
+      btn.textContent = originalLabel;
+    }
+  }, 10);
+});
 
 /* =========================================================================
    RECOLORATION (HSL : teinte remplacée, luminosité d'origine préservée)
@@ -1444,6 +1852,7 @@ document.getElementById("undoBtn").addEventListener("click", ()=>{
   state.layers = state.history.pop();
   renderComposite();
   renderLayersList();
+  renderDetectedGroups();
   saveProject();
 });
 document.getElementById("redoBtn").addEventListener("click", ()=>{
@@ -1452,6 +1861,7 @@ document.getElementById("redoBtn").addEventListener("click", ()=>{
   state.layers = state.redoStack.pop();
   renderComposite();
   renderLayersList();
+  renderDetectedGroups();
   saveProject();
 });
 
@@ -1472,7 +1882,7 @@ function renderLayersList(){
       <div class="layer-swatch" style="background:${layer.hex}"></div>
       <div class="layer-info">
         <div class="layer-name">${layer.name}</div>
-        <div class="layer-meta">${layer.range} · intensité ${layer.intensity}%${layer.keepSat?" · saturation d'origine":""}</div>
+        <div class="layer-meta">${layer.range} · intensité ${layer.intensity}%${layer.keepSat?" · saturation d'origine":""}${layer.coverage?" · ~"+Math.round(layer.coverage*100)+"% de l'image":""}</div>
       </div>
       <div class="layer-actions">
         <button data-act="edit" title="Modifier la teinte, l'intensité ou la saturation">✎</button>
@@ -1501,6 +1911,7 @@ function editLayer(id){
   document.getElementById("keepSatCheckbox").checked = layer.keepSat;
   document.getElementById("currentColorName").textContent = layer.name+" · "+layer.range;
 
+  document.getElementById("autoDetectSection").style.display = "none";
   document.getElementById("selectionTools").style.display = "none";
   document.getElementById("applyLayerRow").style.display = "none";
   document.getElementById("undoRedoRow").style.display = "none";
@@ -1517,6 +1928,7 @@ function editLayer(id){
 
 function exitLayerEditMode(){
   state.editingLayerId = null;
+  document.getElementById("autoDetectSection").style.display = "";
   document.getElementById("selectionTools").style.display = "";
   document.getElementById("applyLayerRow").style.display = "";
   document.getElementById("undoRedoRow").style.display = "";
@@ -1536,6 +1948,7 @@ document.getElementById("editSaveBtn").addEventListener("click", ()=>{
   exitLayerEditMode();
   renderComposite();
   renderLayersList();
+  renderDetectedGroups();
   saveProject();
   toast("Calque modifié : "+layer.name);
 });
@@ -1552,8 +1965,12 @@ async function deleteLayer(id){
   if(state.editingLayerId===id) exitLayerEditMode();
   pushHistory();
   state.layers = state.layers.filter(l=>l.id!==id);
+  if(state.detectedGroups){
+    state.detectedGroups = state.detectedGroups.filter(g=>g.layerId!==id);
+  }
   renderComposite();
   renderLayersList();
+  renderDetectedGroups();
   saveProject();
 }
 
@@ -1666,7 +2083,7 @@ function doSaveProject(){
       baseImage: imageDataToPngDataURL(state.baseImageData, state.workW, state.workH),
       layers: state.layers.map(l=>({
         id:l.id, name:l.name, range:l.range, hex:l.hex,
-        intensity:l.intensity, keepSat:l.keepSat,
+        intensity:l.intensity, keepSat:l.keepSat, coverage:l.coverage, fromDetection:l.fromDetection,
         mask: maskToPngDataURL(l.maskArr, state.workW, state.workH),
       })),
       nextLayerId: state.nextLayerId,
@@ -1706,18 +2123,26 @@ async function loadSavedProject(){
     const mask = await pngDataURLToMask(l.mask, payload.w, payload.h);
     state.layers.push({
       id:l.id, name:l.name, range:l.range, hex:l.hex,
-      intensity:l.intensity, keepSat:l.keepSat, maskArr:mask,
+      intensity:l.intensity, keepSat:l.keepSat, maskArr:mask, coverage:l.coverage,
+      fromDetection:l.fromDetection,
     });
   }
   state.nextLayerId = payload.nextLayerId || (state.layers.length+1);
   state.currentSelection = null;
   state.history=[]; state.redoStack=[];
+  // Reconstruit la liste des groupes détectés (pour l'affichage dans
+  // l'onglet Sélection) à partir des calques marqués fromDetection.
+  const detected = state.layers.filter(l=>l.fromDetection);
+  state.detectedGroups = detected.length>0
+    ? detected.map(l=>({layerId:l.id, originalHex:l.hex, coverage:l.coverage||0}))
+    : null;
   exitLayerEditMode();
 
   fitZoomToScreen();
   showEditor();
   renderComposite();
   renderLayersList();
+  renderDetectedGroups();
   return true;
 }
 
